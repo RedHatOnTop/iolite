@@ -2,8 +2,9 @@
 
 Remote desktop for a GNOME Wayland computer, driven from an Android phone.
 
-**Alpha.** It works on the author's machine (Fedora 44, GNOME 50, Intel Core Ultra) with a
-Galaxy Z Fold 7. Expect rough edges and protocol changes between versions.
+**Alpha.** The host is tested on Fedora 44 with GNOME 50 on an Intel Core Ultra 7 155H; the
+Android app is tested end to end on the emulator in CI. Expect rough edges and protocol changes
+between versions.
 
 [한국어 설명](README.ko.md)
 
@@ -65,6 +66,21 @@ with the same code: accept it there only if the codes match. If notifications ar
 
 `iolite clients` lists paired devices and `iolite clients --forget <fingerprint prefix>` removes
 one.
+
+On the phone, tap the handle on the right edge for the keyboard, the input mode and disconnect.
+Touch mode passes your fingers through as touches; trackpad mode moves the pointer (tap to
+click, two fingers to scroll or right-click, long press to right-click, tap and drag to drag).
+
+## Known limits
+
+- Mutter can only type characters that exist in the computer's keyboard layout. Anything else
+  (Hangul, accented letters) is put on the clipboard and pasted with Shift+Insert. That works in
+  GTK apps, browsers and Electron apps, and in xterm.js terminals; GNOME Terminal and Ptyxis
+  paste the primary selection on Shift+Insert instead. Pasting replaces the clipboard.
+- Text typed from the phone goes through the computer's input method. If it is in Hangul mode,
+  Latin letters get composed into Hangul; switch it to Latin first.
+- One monitor per session: the primary one, or `iolite serve --monitor <connector>`.
+- Encoding needs a VA-API AV1 encoder; there is no software fallback for the desktop yet.
 
 ## How it fits together
 
