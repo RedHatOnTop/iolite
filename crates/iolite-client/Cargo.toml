@@ -1,0 +1,15 @@
+[package]
+name = "iolite-client"
+description = "Client side of the iolite protocol, shared by the Android app and `iolite probe`"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+iolite-proto.workspace = true
+log.workspace = true
+quinn.workspace = true
+tokio.workspace = true

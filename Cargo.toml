@@ -1,0 +1,32 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/iolite-proto",
+    "crates/iolite-client",
+    "crates/iolite-host",
+    "crates/iolite-android",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "GPL-3.0-or-later"
+repository = "https://github.com/RedHatOnTop/iolite"
+rust-version = "1.82"
+
+[workspace.dependencies]
+iolite-proto = { path = "crates/iolite-proto" }
+iolite-client = { path = "crates/iolite-client" }
+anyhow = "1"
+log = "0.4"
+postcard = { version = "1", default-features = false, features = ["use-std"] }
+quinn = { version = "0.11", default-features = false, features = ["log", "runtime-tokio", "rustls-ring"] }
+rcgen = { version = "0.13", default-features = false, features = ["crypto", "ring"] }
+ring = "0.17"
+rustls = { version = "0.23", default-features = false, features = ["logging", "ring", "std"] }
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+
+[profile.release]
+lto = "thin"
+strip = true
