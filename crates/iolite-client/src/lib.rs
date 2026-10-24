@@ -48,7 +48,10 @@ pub enum Event {
     /// the one on their screen and accepts or declines.
     PairingCode(String),
     /// Streaming starts. Save `host` and pass it as `pinned_host` next time.
-    Welcome { host: Fingerprint, welcome: Welcome },
+    Welcome {
+        host: Fingerprint,
+        welcome: Welcome,
+    },
     Video(Packet),
     Audio(Packet),
     Closed(String),
@@ -134,7 +137,9 @@ async fn session(
 async fn control_in(recv: &mut quinn::RecvStream) -> Result<String> {
     loop {
         match wire::read_message::<HostMsg, _>(recv).await? {
-            Some(HostMsg::Bye { reason }) | Some(HostMsg::Rejected { reason }) => return Ok(reason),
+            Some(HostMsg::Bye { reason }) | Some(HostMsg::Rejected { reason }) => {
+                return Ok(reason)
+            }
             Some(HostMsg::Pong { .. }) => {}
             Some(other) => log::warn!("unexpected message mid-session: {other:?}"),
             None => return Ok("host closed the connection".into()),

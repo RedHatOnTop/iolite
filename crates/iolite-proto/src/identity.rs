@@ -230,11 +230,11 @@ impl ServerCertVerifier for PinnedHost {
         _now: UnixTime,
     ) -> Result<ServerCertVerified, rustls::Error> {
         match self.pin {
-            Some(pin) if Fingerprint::of(end_entity) != pin => Err(
-                rustls::Error::InvalidCertificate(
+            Some(pin) if Fingerprint::of(end_entity) != pin => {
+                Err(rustls::Error::InvalidCertificate(
                     rustls::CertificateError::ApplicationVerificationFailure,
-                ),
-            ),
+                ))
+            }
             _ => Ok(ServerCertVerified::assertion()),
         }
     }

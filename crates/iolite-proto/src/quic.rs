@@ -7,7 +7,9 @@ pub fn transport() -> quinn::TransportConfig {
     let mut t = quinn::TransportConfig::default();
     t.keep_alive_interval(Some(Duration::from_secs(2)));
     t.max_idle_timeout(Some(
-        Duration::from_secs(20).try_into().expect("idle timeout fits a varint"),
+        Duration::from_secs(20)
+            .try_into()
+            .expect("idle timeout fits a varint"),
     ));
     t
 }

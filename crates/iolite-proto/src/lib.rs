@@ -40,10 +40,16 @@ pub enum HostMsg {
     /// The client is not paired. Both ends now show the pairing code derived from the two
     /// certificate fingerprints and the host user accepts or declines.
     PairingRequired,
-    Rejected { reason: String },
+    Rejected {
+        reason: String,
+    },
     Welcome(Welcome),
-    Pong { client_time_us: u64 },
-    Bye { reason: String },
+    Pong {
+        client_time_us: u64,
+    },
+    Bye {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

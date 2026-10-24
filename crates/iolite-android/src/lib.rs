@@ -19,8 +19,7 @@ use jni::{JNIEnv, JavaVM};
 use tokio::sync::mpsc;
 
 static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-static SESSIONS: OnceLock<Mutex<HashMap<i64, mpsc::UnboundedSender<ClientMsg>>>> =
-    OnceLock::new();
+static SESSIONS: OnceLock<Mutex<HashMap<i64, mpsc::UnboundedSender<ClientMsg>>>> = OnceLock::new();
 static NEXT_HANDLE: AtomicI64 = AtomicI64::new(1);
 
 fn runtime() -> &'static tokio::runtime::Runtime {
@@ -385,12 +384,7 @@ pub extern "system" fn Java_io_github_redhatontop_iolite_Native_text<'local>(
     text: JString<'local>,
 ) {
     if let Ok(text) = env.get_string(&text) {
-        input(
-            handle,
-            Input::Text {
-                text: text.into(),
-            },
-        );
+        input(handle, Input::Text { text: text.into() });
     }
 }
 

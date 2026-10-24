@@ -163,7 +163,9 @@ mod tests {
             y: 0.75,
         });
         write_message(&mut a, &msg).await.unwrap();
-        write_packet(&mut a, FLAG_KEYFRAME, 42, b"obu").await.unwrap();
+        write_packet(&mut a, FLAG_KEYFRAME, 42, b"obu")
+            .await
+            .unwrap();
         drop(a);
 
         match read_message::<ClientMsg, _>(&mut b).await.unwrap() {
