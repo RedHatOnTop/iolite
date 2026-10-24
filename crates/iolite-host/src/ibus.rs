@@ -60,7 +60,8 @@ impl Hangul {
             .await
             .context("connecting to IBus")?;
         let ibus = IBusProxy::new(&bus).await?;
-        let engine = engine_name(&ibus.get_global_engine().await?);
+        let desc = ibus.get_global_engine().await?;
+        let engine = engine_name(&desc);
         if engine.as_deref() != Some(HANGUL_ENGINE) {
             tracing::info!("IBus engine is {engine:?}, not hangul; Korean text will be pasted");
             return Ok(None);
