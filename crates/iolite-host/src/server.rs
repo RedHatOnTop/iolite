@@ -370,7 +370,7 @@ async fn send_video(
     let mut stream = conn.open_uni().await?;
     stream.set_priority(0)?;
     tokio::io::AsyncWriteExt::write_all(&mut stream, &[StreamKind::Video as u8]).await?;
-    let mut rate = RateControl::new(start_kbps, max_kbps);
+    let mut rate = RateControl::new(start_kbps, max_kbps, Instant::now());
     while let Some(frame) = frames.recv().await {
         let frame = frame?;
         if frame.size.is_some_and(|s| s != size) {
@@ -379,7 +379,7 @@ async fn send_video(
         let started = Instant::now();
         let flags = if frame.keyframe { FLAG_KEYFRAME } else { 0 };
         wire::write_packet(&mut stream, flags, frame.pts_us, &frame.data).await?;
-        if let Some(kbps) = rate.observe(started.elapsed(), frames.len()) {
+        if let Some(kbps) = rate.observe(Instant::now(), started.elapsed(), frames.len()) {
             debug!("video bitrate {kbps} kbit/s");
             video.set_bitrate(kbps);
         }
@@ -440,42 +440,64 @@ async fn control(
     }
 }
 
-/// Cuts the bitrate by a quarter after any second in which the link pushed back, otherwise
-/// creeps up by a tenth.
+/// Adapts the encoder bitrate to the link. vaav1enc starts a new keyframe whenever its
+/// bitrate changes, so changes are rare: down by 30% after two congested seconds in a row, up by
+/// 20% after ten clean seconds, never twice within three seconds.
 struct RateControl {
     kbps: u32,
     max: u32,
     window: Instant,
     congested: bool,
+    congested_windows: u32,
+    clean_since: Instant,
+    last_change: Instant,
 }
 
 impl RateControl {
-    fn new(kbps: u32, max: u32) -> Self {
+    fn new(kbps: u32, max: u32, now: Instant) -> Self {
         Self {
             kbps,
             max: max.max(kbps),
-            window: Instant::now(),
+            window: now,
             congested: false,
+            congested_windows: 0,
+            clean_since: now,
+            last_change: now,
         }
     }
 
-    fn observe(&mut self, write_time: Duration, backlog: usize) -> Option<u32> {
+    fn observe(&mut self, now: Instant, write_time: Duration, backlog: usize) -> Option<u32> {
         if write_time > Duration::from_millis(30) || backlog > 0 {
             self.congested = true;
         }
-        if self.window.elapsed() < Duration::from_secs(1) {
+        if now.duration_since(self.window) < Duration::from_secs(1) {
             return None;
         }
-        self.window = Instant::now();
-        let next = if std::mem::take(&mut self.congested) {
-            (self.kbps * 3 / 4).max(MIN_KBPS)
+        self.window = now;
+        if std::mem::take(&mut self.congested) {
+            self.congested_windows += 1;
+            self.clean_since = now;
         } else {
-            (self.kbps + self.kbps / 10).min(self.max)
+            self.congested_windows = 0;
+        }
+        if now.duration_since(self.last_change) < Duration::from_secs(3) {
+            return None;
+        }
+        let next = if self.congested_windows >= 2 {
+            (self.kbps * 7 / 10).max(MIN_KBPS)
+        } else if now.duration_since(self.clean_since) >= Duration::from_secs(10) {
+            (self.kbps * 6 / 5).min(self.max)
+        } else {
+            self.kbps
         };
-        (next != self.kbps).then(|| {
-            self.kbps = next;
-            next
-        })
+        if next == self.kbps {
+            return None;
+        }
+        self.kbps = next;
+        self.last_change = now;
+        self.clean_since = now;
+        self.congested_windows = 0;
+        Some(next)
     }
 }
 
@@ -484,12 +506,40 @@ mod tests {
     use super::*;
 
     #[test]
-    fn rate_control_backs_off_and_recovers() {
-        let mut rate = RateControl::new(8000, 10_000);
-        rate.window -= Duration::from_secs(2);
-        assert_eq!(rate.observe(Duration::from_millis(80), 0), Some(6000));
-        rate.window -= Duration::from_secs(2);
-        assert_eq!(rate.observe(Duration::from_millis(1), 0), Some(6600));
-        assert_eq!(rate.observe(Duration::from_millis(1), 0), None);
+    fn rate_control_changes_rarely() {
+        let t0 = Instant::now();
+        let at = |s: u64| t0 + Duration::from_secs(s);
+        let slow = Duration::from_millis(80);
+        let fast = Duration::from_millis(1);
+        let mut rate = RateControl::new(10_000, 20_000, t0);
+
+        assert_eq!(rate.observe(at(1), slow, 0), None, "too soon after start");
+        assert_eq!(rate.observe(at(2), slow, 0), None, "too soon after start");
+        assert_eq!(rate.observe(at(3), slow, 0), Some(7000));
+        assert_eq!(
+            rate.observe(at(4), slow, 0),
+            None,
+            "one change per three seconds"
+        );
+        assert_eq!(rate.observe(at(5), fast, 0), None);
+        for s in 6..14 {
+            assert_eq!(
+                rate.observe(at(s), fast, 0),
+                None,
+                "not clean for ten seconds at {s}"
+            );
+        }
+        assert_eq!(
+            rate.observe(at(14), fast, 0),
+            Some(8400),
+            "ten clean seconds since t=4"
+        );
+        assert_eq!(
+            rate.observe(at(15), fast, 3),
+            None,
+            "a backlog is congestion"
+        );
+        assert_eq!(rate.observe(at(16), fast, 3), None);
+        assert_eq!(rate.observe(at(17), fast, 3), Some(5880));
     }
 }

@@ -121,6 +121,9 @@ const BTN_RIGHT: i32 = 0x111;
 const BTN_MIDDLE: i32 = 0x112;
 const AXIS_FINISH: u32 = 1 << 0;
 const AXIS_SOURCE_FINGER: u32 = 1 << 2;
+const XK_SPACE: u32 = 0x20;
+const XK_SHIFT_L: u32 = 0xffe1;
+const XK_CONTROL_L: u32 = 0xffe3;
 
 pub struct DesktopSession {
     rd: RemoteDesktopSessionProxy<'static>,
@@ -249,13 +252,37 @@ impl DesktopSession {
             Input::Key { keysym, down } => self.rd.notify_keyboard_keysym(*keysym, *down).await,
             Input::Text { text } => {
                 for c in text.chars() {
-                    let keysym = keysym_for_char(c);
-                    self.rd.notify_keyboard_keysym(keysym, true).await?;
-                    self.rd.notify_keyboard_keysym(keysym, false).await?;
+                    if c.is_ascii() {
+                        self.tap(keysym_for_char(c)).await?;
+                    } else {
+                        self.type_unicode(c).await?;
+                    }
                 }
                 Ok(())
             }
         }
+    }
+}
+
+impl DesktopSession {
+    async fn tap(&self, keysym: u32) -> zbus::Result<()> {
+        self.rd.notify_keyboard_keysym(keysym, true).await?;
+        self.rd.notify_keyboard_keysym(keysym, false).await
+    }
+
+    /// Mutter can only type keysyms the current keymap has, which leaves out Hangul and most
+    /// non-ASCII text. IBus (and GTK without an input method) accept Ctrl+Shift+U, the code
+    /// point in hex and a space instead.
+    async fn type_unicode(&self, c: char) -> zbus::Result<()> {
+        self.rd.notify_keyboard_keysym(XK_CONTROL_L, true).await?;
+        self.rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
+        self.tap(u32::from('u')).await?;
+        self.rd.notify_keyboard_keysym(XK_SHIFT_L, false).await?;
+        self.rd.notify_keyboard_keysym(XK_CONTROL_L, false).await?;
+        for digit in format!("{:x}", u32::from(c)).chars() {
+            self.tap(u32::from(digit)).await?;
+        }
+        self.tap(XK_SPACE).await
     }
 }
 
