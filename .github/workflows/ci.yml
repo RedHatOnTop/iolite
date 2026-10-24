@@ -133,7 +133,8 @@ jobs:
             adb logcat -d > logcat.txt
             grep -q "first frame rendered" logcat.txt
       - name: Check that a tap reached the host
-        run: grep -q "input: Touch" host.log
+        run: |
+          grep -q 'input: Touch' host.log
       - if: always()
         run: |
           cat host.log
