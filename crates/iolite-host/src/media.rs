@@ -39,15 +39,18 @@ impl VideoPipeline {
         // PipeWire hands over tiled DMA-BUFs (XR24) at a variable rate; the GL stage converts
         // them to NV12 on the GPU and videorate only stamps a fixed rate on the caps, because
         // vaav1enc's rate control fails on 0/1. The leaky queue drops frames while the encoder
-        // or the network is behind, so latency stays flat instead of growing.
+        // or the network is behind, so latency stays flat instead of growing. A drop-only
+        // videorate after gldownload floods stderr with GStreamer criticals during caps
+        // negotiation, so it runs on the DMA-BUFs instead.
         let (desc, adaptive) = match source {
             VideoSource::PipeWire { node_id } => (
                 format!(
                     "pipewiresrc path={node_id} always-copy=false do-timestamp=true keepalive-time=500 \
                      ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream \
+                     ! videorate drop-only=true max-rate={fps} \
+                     ! video/x-raw(memory:DMABuf),framerate={fps}/1 \
                      ! glupload ! glcolorconvert ! video/x-raw(memory:GLMemory),format=NV12 \
                      ! gldownload ! video/x-raw,format=NV12 \
-                     ! videorate drop-only=true max-rate={fps} ! video/x-raw,framerate={fps}/1 \
                      ! vaav1enc name=enc rate-control=cbr bitrate={kbps} target-usage=7 \
                        ref-frames=1 hierarchical-level=1 key-int-max=1024 \
                      ! {AV1_TAIL}"
