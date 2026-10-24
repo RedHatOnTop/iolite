@@ -81,6 +81,7 @@ class VideoDecoder(
         synchronized(lock) {
             if (released || (awaitingKeyframe && !keyframe)) return
             if (pending.size >= MAX_PENDING) {
+                Log.w(TAG, "decoder is ${pending.size} frames behind; skipping to the next keyframe")
                 pending.clear()
                 awaitingKeyframe = !keyframe
                 request = !keyframe
@@ -136,6 +137,6 @@ class VideoDecoder(
     private companion object {
         const val MIME = "video/av01"
         const val TAG = "iolite"
-        const val MAX_PENDING = 8
+        const val MAX_PENDING = 30
     }
 }

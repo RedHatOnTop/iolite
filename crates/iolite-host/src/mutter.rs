@@ -303,23 +303,13 @@ impl DesktopSession {
                     .await
             }
             Input::Key { keysym, down } => self.rd.notify_keyboard_keysym(*keysym, *down).await,
-            Input::Text { text } => {
-                let mut run = String::new();
+            Input::Text { text } if text.is_ascii() => {
                 for c in text.chars() {
-                    if c.is_ascii() {
-                        if !run.is_empty() {
-                            self.paste(&std::mem::take(&mut run)).await?;
-                        }
-                        self.tap(keysym_for_char(c)).await?;
-                    } else {
-                        run.push(c);
-                    }
-                }
-                if !run.is_empty() {
-                    self.paste(&run).await?;
+                    self.tap(keysym_for_char(c)).await?;
                 }
                 Ok(())
             }
+            Input::Text { text } => self.paste(text).await,
         }
     }
 }
@@ -354,10 +344,14 @@ impl DesktopSession {
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
         self.tap(XK_INSERT).await?;
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, false).await?;
-        if !clipboard
+        if clipboard
             .transfer_after(seen, Duration::from_millis(500))
             .await
         {
+            // The application inserts the text only after reading it asynchronously; a key
+            // sent right away would land in front of it.
+            tokio::time::sleep(Duration::from_millis(60)).await;
+        } else {
             tracing::debug!("no application asked for the pasted text");
         }
         Ok(())

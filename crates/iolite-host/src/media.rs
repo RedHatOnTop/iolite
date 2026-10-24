@@ -124,7 +124,7 @@ fn software_encoder(kbps: u32) -> Result<String> {
     if gst::ElementFactory::find("av1enc").is_some() {
         return Ok(format!(
             "av1enc name=enc usage-profile=realtime cpu-used=10 end-usage=cbr \
-             target-bitrate={kbps} lag-in-frames=0 keyframe-max-dist=300 threads=4"
+             target-bitrate={kbps} lag-in-frames=0 keyframe-max-dist=60 threads=4"
         ));
     }
     if gst::ElementFactory::find("svtav1enc").is_some() {
