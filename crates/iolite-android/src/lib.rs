@@ -181,6 +181,7 @@ fn deliver(vm: JavaVM, listener: GlobalRef, mut events: mpsc::Receiver<Event>, h
             break;
         }
     }
+    drop(listener);
 }
 
 fn dispatch(env: &mut JNIEnv, listener: &JObject, event: Event) -> jni::errors::Result<()> {

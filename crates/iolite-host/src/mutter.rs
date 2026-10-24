@@ -5,12 +5,15 @@
 //! that created it goes away, so a crashed host cannot leave one behind.
 
 use std::collections::HashMap;
+use std::io::Write;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use iolite_proto::{keysym_for_char, Input, MouseButton, TouchPhase};
-use zbus::zvariant::{OwnedObjectPath, OwnedValue, Value};
+use tokio::sync::Notify;
+use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue, Value};
 
 #[zbus::proxy(
     interface = "org.gnome.Mutter.RemoteDesktop",
@@ -38,6 +41,12 @@ trait RemoteDesktopSession {
     fn notify_touch_down(&self, stream: &str, slot: u32, x: f64, y: f64) -> zbus::Result<()>;
     fn notify_touch_motion(&self, stream: &str, slot: u32, x: f64, y: f64) -> zbus::Result<()>;
     fn notify_touch_up(&self, slot: u32) -> zbus::Result<()>;
+    fn enable_clipboard(&self, options: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
+    fn set_selection(&self, options: HashMap<&str, Value<'_>>) -> zbus::Result<()>;
+    fn selection_write(&self, serial: u32) -> zbus::Result<OwnedFd>;
+    fn selection_write_done(&self, serial: u32, success: bool) -> zbus::Result<()>;
+    #[zbus(signal)]
+    fn selection_transfer(&self, mime_type: &str, serial: u32) -> zbus::Result<()>;
     #[zbus(signal)]
     fn closed(&self) -> zbus::Result<()>;
     #[zbus(property)]
@@ -121,12 +130,27 @@ const BTN_RIGHT: i32 = 0x111;
 const BTN_MIDDLE: i32 = 0x112;
 const AXIS_FINISH: u32 = 1 << 0;
 const AXIS_SOURCE_FINGER: u32 = 1 << 2;
-const XK_SPACE: u32 = 0x20;
 const XK_SHIFT_L: u32 = 0xffe1;
-const XK_CONTROL_L: u32 = 0xffe3;
+const XK_INSERT: u32 = 0xff63;
+const TEXT_MIME_TYPES: [&str; 5] = [
+    "text/plain;charset=utf-8",
+    "text/plain",
+    "UTF8_STRING",
+    "STRING",
+    "TEXT",
+];
+
+/// Text offered on the clipboard for the next paste.
+#[derive(Default)]
+struct Clipboard {
+    text: Mutex<String>,
+    served: Notify,
+}
 
 pub struct DesktopSession {
     rd: RemoteDesktopSessionProxy<'static>,
+    clipboard: Arc<Clipboard>,
+    transfers: tokio::task::JoinHandle<()>,
     /// Object path of the screen cast stream; absolute input positions are relative to it.
     stream: String,
     pub node_id: u32,
@@ -181,8 +205,15 @@ impl DesktopSession {
             .context("Mutter did not open a PipeWire stream")?
             .context("PipeWire stream signal ended")?;
         let node_id = *signal.args()?.node_id();
+        let clipboard = Arc::new(Clipboard::default());
+        let transfers = tokio::spawn(serve_clipboard(rd.clone(), clipboard.clone()));
+        if let Err(e) = rd.enable_clipboard(HashMap::new()).await {
+            tracing::warn!("clipboard unavailable, non-ASCII text will not type: {e}");
+        }
         Ok(Self {
             rd,
+            clipboard,
+            transfers,
             stream: stream_path.as_str().to_owned(),
             node_id,
             connector,
@@ -190,6 +221,7 @@ impl DesktopSession {
     }
 
     pub async fn stop(&self) {
+        self.transfers.abort();
         if let Err(e) = self.rd.stop().await {
             tracing::debug!("stopping the Mutter session: {e}");
         }
@@ -251,12 +283,19 @@ impl DesktopSession {
             }
             Input::Key { keysym, down } => self.rd.notify_keyboard_keysym(*keysym, *down).await,
             Input::Text { text } => {
+                let mut run = String::new();
                 for c in text.chars() {
                     if c.is_ascii() {
+                        if !run.is_empty() {
+                            self.paste(&std::mem::take(&mut run)).await?;
+                        }
                         self.tap(keysym_for_char(c)).await?;
                     } else {
-                        self.type_unicode(c).await?;
+                        run.push(c);
                     }
+                }
+                if !run.is_empty() {
+                    self.paste(&run).await?;
                 }
                 Ok(())
             }
@@ -271,18 +310,57 @@ impl DesktopSession {
     }
 
     /// Mutter can only type keysyms the current keymap has, which leaves out Hangul and most
-    /// non-ASCII text. IBus (and GTK without an input method) accept Ctrl+Shift+U, the code
-    /// point in hex and a space instead.
-    async fn type_unicode(&self, c: char) -> zbus::Result<()> {
-        self.rd.notify_keyboard_keysym(XK_CONTROL_L, true).await?;
+    /// other non-ASCII text, so such text goes through the clipboard. Shift+Insert pastes in
+    /// GTK, Chromium and Electron apps and in xterm.js terminals; VTE terminals paste the
+    /// primary selection on it instead.
+    async fn paste(&self, text: &str) -> zbus::Result<()> {
+        *self.clipboard.text.lock().unwrap() = text.to_owned();
+        let served = self.clipboard.served.notified();
+        tokio::pin!(served);
+        served.as_mut().enable();
+        self.rd
+            .set_selection(HashMap::from([(
+                "mime-types",
+                Value::from(TEXT_MIME_TYPES.to_vec()),
+            )]))
+            .await?;
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
-        self.tap(u32::from('u')).await?;
+        self.tap(XK_INSERT).await?;
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, false).await?;
-        self.rd.notify_keyboard_keysym(XK_CONTROL_L, false).await?;
-        for digit in format!("{:x}", u32::from(c)).chars() {
-            self.tap(u32::from(digit)).await?;
+        if tokio::time::timeout(Duration::from_millis(500), served)
+            .await
+            .is_err()
+        {
+            tracing::debug!("no application asked for the pasted text");
         }
-        self.tap(XK_SPACE).await
+        Ok(())
+    }
+}
+
+/// Answers paste requests with the text last put on the clipboard.
+async fn serve_clipboard(rd: RemoteDesktopSessionProxy<'static>, clipboard: Arc<Clipboard>) {
+    let mut transfers = match rd.receive_selection_transfer().await {
+        Ok(transfers) => transfers,
+        Err(e) => {
+            tracing::warn!("cannot follow clipboard requests: {e}");
+            return;
+        }
+    };
+    while let Some(signal) = transfers.next().await {
+        let Ok(args) = signal.args() else { continue };
+        let serial = *args.serial();
+        let text = clipboard.text.lock().unwrap().clone();
+        let written = match rd.selection_write(serial).await {
+            Ok(fd) => std::fs::File::from(std::os::fd::OwnedFd::from(fd))
+                .write_all(text.as_bytes())
+                .is_ok(),
+            Err(e) => {
+                tracing::debug!("clipboard write {serial}: {e}");
+                false
+            }
+        };
+        let _ = rd.selection_write_done(serial, written).await;
+        clipboard.served.notify_waiters();
     }
 }
 

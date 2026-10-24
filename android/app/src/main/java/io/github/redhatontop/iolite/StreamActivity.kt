@@ -59,8 +59,13 @@ class StreamActivity : Activity() {
     @Volatile
     private var audio: AudioPlayer? = null
 
+    private val decoderLock = Any()
+
+    @Volatile
     private var frameSize: Pair<Int, Int>? = null
     private var started = false
+
+    @Volatile
     private var surfaceReady = false
     private var welcomed = false
     private var attempt = 0
@@ -298,13 +303,12 @@ class StreamActivity : Activity() {
         prefs.remember(endpoint)
         hideOverlays()
         aspectFrame.setAspect(width, height)
-        remote.frameWidth = width
-        remote.frameHeight = height
-        frameSize = width to height
         releaseAudio()
         audio = opusHead?.let { head -> runCatching { AudioPlayer(head) }.getOrNull() }
-        startDecoder()
-        Native.requestKeyframe(remote.handle)
+        if (decoder == null) {
+            startDecoder()
+            Native.requestKeyframe(remote.handle)
+        }
     }
 
     private fun handleClosed(reason: String) {
@@ -326,20 +330,23 @@ class StreamActivity : Activity() {
         handler.postDelayed(reconnect, delaySeconds * 1000L)
     }
 
+    /** Runs on the UI thread or, for a new session, on the native thread before its first frame. */
     private fun startDecoder() {
-        releaseDecoder()
-        val (width, height) = frameSize ?: return
-        if (!surfaceReady) return
-        decoder = runCatching {
-            VideoDecoder(
-                surface.holder.surface,
-                width,
-                height,
-                requestKeyframe = { Native.requestKeyframe(remote.handle) },
-                onFailure = { runOnUiThread { rebuildDecoder() } },
-            )
-        }.onFailure { Log.e(TAG, "video decoder could not start", it) }.getOrNull()
-        if (decoder == null) showBanner(getString(R.string.video_failed))
+        synchronized(decoderLock) {
+            releaseDecoder()
+            val (width, height) = frameSize ?: return
+            if (!surfaceReady) return
+            decoder = runCatching {
+                VideoDecoder(
+                    surface.holder.surface,
+                    width,
+                    height,
+                    requestKeyframe = { Native.requestKeyframe(remote.handle) },
+                    onFailure = { runOnUiThread { rebuildDecoder() } },
+                )
+            }.onFailure { Log.e(TAG, "video decoder could not start", it) }.getOrNull()
+            if (decoder == null) runOnUiThread { showBanner(getString(R.string.video_failed)) }
+        }
     }
 
     private fun rebuildDecoder() {
@@ -349,8 +356,10 @@ class StreamActivity : Activity() {
     }
 
     private fun releaseDecoder() {
-        decoder?.release()
-        decoder = null
+        synchronized(decoderLock) {
+            decoder?.release()
+            decoder = null
+        }
     }
 
     private fun releaseAudio() {
@@ -436,6 +445,13 @@ class StreamActivity : Activity() {
         }
 
         override fun onWelcome(hostFingerprint: String, hostName: String, width: Int, height: Int, opusHead: ByteArray?) {
+            if (session !== this@Session) return
+            // The host's first packet is a keyframe and arrives right after this call on the
+            // same thread, so the decoder has to exist before returning.
+            remote.frameWidth = width
+            remote.frameHeight = height
+            frameSize = width to height
+            startDecoder()
             runOnUiThread {
                 if (session === this@Session) handleWelcome(hostFingerprint, width, height, opusHead)
             }

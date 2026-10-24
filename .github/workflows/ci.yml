@@ -124,6 +124,7 @@ jobs:
           disable-animations: true
           script: |
             adb install -r iolite.apk
+            adb shell settings put secure immersive_mode_confirmations confirmed
             adb logcat -c
             adb shell am start -n io.github.redhatontop.iolite/.MainActivity --es host 10.0.2.2 --ei port 46100 --ez autoconnect true
             sleep 30
