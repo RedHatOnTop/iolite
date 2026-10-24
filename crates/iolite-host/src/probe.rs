@@ -142,11 +142,13 @@ async fn resolve(host: &str) -> Result<SocketAddr> {
     } else {
         format!("{host}:{DEFAULT_PORT}")
     };
-    tokio::net::lookup_host(&target)
+    let mut addrs = tokio::net::lookup_host(target.as_str())
         .await
-        .with_context(|| format!("resolving {target}"))?
+        .with_context(|| format!("resolving {target}"))?;
+    let addr = addrs
         .next()
-        .with_context(|| format!("{target} has no address"))
+        .with_context(|| format!("{target} has no address"))?;
+    Ok(addr)
 }
 
 #[derive(Default)]
