@@ -47,7 +47,7 @@ impl Hangul {
         match Self::try_connect().await {
             Ok(hangul) => hangul,
             Err(e) => {
-                tracing::debug!("no IBus: {e:#}");
+                tracing::info!("no IBus, Korean text will be pasted: {e:#}");
                 None
             }
         }
@@ -85,6 +85,7 @@ impl Hangul {
             tracing::info!("ibus-hangul switches on {switch_keys:?}, which the host cannot press");
             return Ok(None);
         };
+        tracing::info!("typing Korean through ibus-hangul");
         Ok(Some(Self {
             ibus,
             toggle,
