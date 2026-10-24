@@ -7,7 +7,9 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result};
 use iolite_client::{Config, Event};
 use iolite_proto::identity::{Fingerprint, Identity};
-use iolite_proto::{ClientMsg, Hello, Input, MouseButton, DEFAULT_PORT, PROTOCOL_VERSION};
+use iolite_proto::{
+    ClientMsg, Hello, Input, MouseButton, TouchPhase, DEFAULT_PORT, PROTOCOL_VERSION,
+};
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
@@ -20,7 +22,11 @@ pub struct ProbeOptions {
     pub out: Option<PathBuf>,
     pub click: Option<(f32, f32)>,
     pub text: Option<String>,
+    pub ime: Option<String>,
+    pub tap: Option<(f32, f32)>,
 }
+
+const XK_BACKSPACE: u32 = 0xff08;
 
 pub async fn probe(opts: ProbeOptions) -> Result<()> {
     let addr = resolve(&opts.host).await?;
@@ -135,6 +141,35 @@ fn send_test_input(tx: &mpsc::UnboundedSender<ClientMsg>, opts: &ProbeOptions) {
     }
     if let Some(text) = &opts.text {
         let _ = tx.send(ClientMsg::Input(Input::Text { text: text.clone() }));
+    }
+    for step in opts.ime.iter().flat_map(|s| s.split('|')) {
+        let inputs = if let Some(text) = step.strip_prefix('~') {
+            vec![Input::Compose { text: text.into() }]
+        } else if let Some(text) = step.strip_prefix('=') {
+            vec![Input::Text { text: text.into() }]
+        } else if step == "^" {
+            [true, false]
+                .map(|down| Input::Key {
+                    keysym: XK_BACKSPACE,
+                    down,
+                })
+                .into()
+        } else {
+            continue;
+        };
+        for input in inputs {
+            let _ = tx.send(ClientMsg::Input(input));
+        }
+    }
+    if let Some((x, y)) = opts.tap {
+        for phase in [TouchPhase::Down, TouchPhase::Up] {
+            let _ = tx.send(ClientMsg::Input(Input::Touch {
+                phase,
+                slot: 0,
+                x,
+                y,
+            }));
+        }
     }
 }
 

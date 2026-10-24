@@ -19,7 +19,7 @@ class KeyboardBridge @JvmOverloads constructor(
     var onStickyChanged: (() -> Unit)? = null
 
     private val sticky = mutableSetOf<Int>()
-    private val composing = StringBuilder()
+    private var composing = ""
 
     override fun onCheckIsTextEditor(): Boolean = true
 
@@ -67,29 +67,54 @@ class KeyboardBridge @JvmOverloads constructor(
         Native.key(remote.handle, keysym, down)
     }
 
-    private fun sendText(text: String) {
-        if (text.isNotEmpty()) Native.text(remote.handle, text)
+    /** Commits the composing text, so a tap or a key lands after it on the computer. */
+    fun finishComposition() {
+        if (composing.isEmpty()) return
+        commit(composing)
+        restartInput()
+    }
+
+    private fun commit(text: String) {
+        if (text.isNotEmpty() || composing.isNotEmpty()) Native.text(remote.handle, text)
+        composing = ""
+    }
+
+    private fun compose(text: String) {
+        if (text == composing) return
+        composing = text
+        Native.compose(remote.handle, text)
+    }
+
+    private fun shortcut(text: CharSequence): Int? {
+        if (sticky.isEmpty() || composing.isNotEmpty()) return null
+        return text.codePoints().toArray().singleOrNull()?.let(Keysyms::forShortcut)
+    }
+
+    private fun restartInput() {
+        context.getSystemService(InputMethodManager::class.java).restartInput(this)
     }
 
     private inner class Connection(view: View) : BaseInputConnection(view, false) {
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
-            composing.clear()
-            val value = text.toString()
-            val keysym = value.codePoints().toArray().singleOrNull()?.let(Keysyms::forCodePoint)
-            if (sticky.isNotEmpty() && keysym != null) send(keysym) else sendText(value)
+            val keysym = shortcut(text)
+            if (keysym != null) send(keysym) else commit(text.toString())
             return true
         }
 
         override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
-            composing.setLength(0)
-            composing.append(text)
+            val keysym = shortcut(text)
+            if (keysym != null) {
+                send(keysym)
+                // Otherwise the input method keeps composing on top of the jamo it just sent.
+                restartInput()
+            } else {
+                compose(text.toString())
+            }
             return true
         }
 
         override fun finishComposingText(): Boolean {
-            val value = composing.toString()
-            composing.clear()
-            sendText(value)
+            if (composing.isNotEmpty()) commit(composing)
             return true
         }
 

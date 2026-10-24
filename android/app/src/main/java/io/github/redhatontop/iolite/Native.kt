@@ -83,6 +83,11 @@ object Native {
     @JvmStatic
     external fun key(handle: Long, keysym: Int, down: Boolean)
 
+    /** The input method's composing text, each time it changes. */
+    @JvmStatic
+    external fun compose(handle: Long, text: String)
+
+    /** Committed text; it replaces the composing text. */
     @JvmStatic
     external fun text(handle: Long, text: String)
 

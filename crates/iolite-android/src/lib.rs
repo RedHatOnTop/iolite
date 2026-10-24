@@ -390,6 +390,18 @@ pub extern "system" fn Java_io_github_redhatontop_iolite_Native_text<'local>(
 }
 
 #[no_mangle]
+pub extern "system" fn Java_io_github_redhatontop_iolite_Native_compose<'local>(
+    mut env: JNIEnv<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    text: JString<'local>,
+) {
+    if let Ok(text) = env.get_string(&text) {
+        input(handle, Input::Compose { text: text.into() });
+    }
+}
+
+#[no_mangle]
 pub extern "system" fn Java_io_github_redhatontop_iolite_Native_requestKeyframe(
     _env: JNIEnv,
     _class: JClass,

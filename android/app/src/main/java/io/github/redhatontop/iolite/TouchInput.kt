@@ -68,7 +68,10 @@ class TouchInput(
         if (!event.isFromSource(InputDevice.SOURCE_MOUSE)) return false
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_MOVE -> pointerMove(event.x, event.y)
-            MotionEvent.ACTION_BUTTON_PRESS -> mouseButton(event, true)
+            MotionEvent.ACTION_BUTTON_PRESS -> {
+                onInteract()
+                mouseButton(event, true)
+            }
             MotionEvent.ACTION_BUTTON_RELEASE -> mouseButton(event, false)
             MotionEvent.ACTION_SCROLL -> Native.scroll(
                 remote.handle,

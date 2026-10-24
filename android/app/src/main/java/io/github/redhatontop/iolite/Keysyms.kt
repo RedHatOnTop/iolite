@@ -31,10 +31,20 @@ object Keysyms {
 
     private const val UNICODE_BASE = 0x01000000
 
+    /** Dubeolsik keys for the compatibility jamo from U+3131; blank where none is a single key. */
+    private const val JAMO_KEYS = "rR s  eEf       aqQ tTdwWczxvgkoiOjpuPh   yn   bm l"
+    private const val JAMO_BASE = 0x3131
+
     fun forKeyEvent(e: KeyEvent): Int? {
         named(e.keyCode)?.let { return it }
         val codePoint = e.getUnicodeChar(0)
         return if (codePoint == 0) null else forCodePoint(codePoint)
+    }
+
+    /** Keysym for a shortcut, reading a Korean jamo as the Latin key it sits on. */
+    fun forShortcut(codePoint: Int): Int? {
+        val key = JAMO_KEYS.getOrNull(codePoint - JAMO_BASE)?.takeIf { it != ' ' }
+        return forCodePoint(key?.code ?: codePoint)
     }
 
     fun forCodePoint(codePoint: Int): Int? = when (codePoint) {

@@ -16,6 +16,9 @@ use iolite_proto::{keysym_for_char, Input, MouseButton, TouchPhase};
 use tokio::sync::Notify;
 use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue, Value};
 
+use crate::hangul;
+use crate::ibus::{Hangul, Toggle, XK_HANGUL};
+
 #[zbus::proxy(
     interface = "org.gnome.Mutter.RemoteDesktop",
     default_service = "org.gnome.Mutter.RemoteDesktop",
@@ -131,8 +134,15 @@ const BTN_RIGHT: i32 = 0x111;
 const BTN_MIDDLE: i32 = 0x112;
 const AXIS_FINISH: u32 = 1 << 0;
 const AXIS_SOURCE_FINGER: u32 = 1 << 2;
+const XK_BACKSPACE: u32 = 0xff08;
+const XK_ESCAPE: u32 = 0xff1b;
+const XK_SPACE: u32 = 0x20;
 const XK_SHIFT_L: u32 = 0xffe1;
+const XK_SHIFT_R: u32 = 0xffe2;
+const XK_ALT_R: u32 = 0xffea;
 const XK_INSERT: u32 = 0xff63;
+/// IBus applies a new engine after SetGlobalEngine returns.
+const ENGINE_SETTLE: Duration = Duration::from_millis(150);
 const TEXT_MIME_TYPES: [&str; 5] = [
     "text/plain;charset=utf-8",
     "text/plain",
@@ -168,10 +178,34 @@ impl Clipboard {
     }
 }
 
+/// The phone's input method text as the computer's ibus-hangul holds it.
+#[derive(Default)]
+struct Composer {
+    /// Dubeolsik keys typed for the phone's composing text; ibus-hangul holds them as preedit.
+    preedit: String,
+    /// ibus-hangul's mode as the host last set it, or None before the first reset and after a
+    /// key that may have switched it.
+    hangul_mode: Option<bool>,
+    shift: bool,
+}
+
+impl Composer {
+    fn track_key(&mut self, keysym: u32, down: bool) {
+        match keysym {
+            XK_SHIFT_L | XK_SHIFT_R => self.shift = down,
+            XK_HANGUL | XK_ALT_R | XK_ESCAPE if down => self.hangul_mode = None,
+            XK_SPACE if down && self.shift => self.hangul_mode = None,
+            _ => {}
+        }
+    }
+}
+
 pub struct DesktopSession {
     rd: RemoteDesktopSessionProxy<'static>,
     clipboard: Arc<Clipboard>,
     transfers: tokio::task::JoinHandle<()>,
+    hangul: Option<Hangul>,
+    composer: tokio::sync::Mutex<Composer>,
     /// Object path of the screen cast stream; absolute input positions are relative to it.
     stream: String,
     pub node_id: u32,
@@ -231,10 +265,13 @@ impl DesktopSession {
         if let Err(e) = rd.enable_clipboard(HashMap::new()).await {
             tracing::warn!("clipboard unavailable, non-ASCII text will not type: {e}");
         }
+        let hangul = Hangul::connect().await;
         Ok(Self {
             rd,
             clipboard,
             transfers,
+            hangul,
+            composer: Default::default(),
             stream: stream_path.as_str().to_owned(),
             node_id,
             connector,
@@ -266,6 +303,19 @@ impl DesktopSession {
                 f64::from(y).clamp(0.0, 1.0) * h,
             )
         };
+        if let Input::Touch {
+            phase: TouchPhase::Down,
+            ..
+        }
+        | Input::Button { down: true, .. }
+        | Input::Key { .. } = input
+        {
+            let mut composer = self.composer.lock().await;
+            self.finish_preedit(&mut composer).await?;
+            if let Input::Key { keysym, down } = input {
+                composer.track_key(*keysym, *down);
+            }
+        }
         match input {
             Input::Touch { phase, slot, x, y } => {
                 let (x, y) = pos(*x, *y);
@@ -303,13 +353,130 @@ impl DesktopSession {
                     .await
             }
             Input::Key { keysym, down } => self.rd.notify_keyboard_keysym(*keysym, *down).await,
-            Input::Text { text } if text.is_ascii() => {
-                for c in text.chars() {
+            Input::Compose { text } => self.compose(text).await,
+            Input::Text { text } => self.commit(text).await,
+        }
+    }
+}
+
+/// Korean text is typed as dubeolsik keys into ibus-hangul, so it composes in the focused
+/// application, terminals included, just as from a keyboard on the computer. The phone's
+/// composing text is mirrored key by key: ibus-hangul's backspace removes one key from its
+/// preedit, and toggling the mode twice commits the preedit and leaves the mode as it was.
+impl DesktopSession {
+    async fn compose(&self, text: &str) -> zbus::Result<()> {
+        let Some(ime) = &self.hangul else {
+            return Ok(());
+        };
+        let mut composer = self.composer.lock().await;
+        let mut chars = text.chars();
+        // Composing text longer than a syllable is typed when it is committed.
+        let target = match (chars.next(), chars.next()) {
+            (Some(c), None) => hangul::keys(c).unwrap_or_default(),
+            _ => String::new(),
+        };
+        if !target.is_empty() {
+            self.set_mode(&mut composer, ime, true).await?;
+        }
+        let kept = composer
+            .preedit
+            .bytes()
+            .zip(target.bytes())
+            .take_while(|(a, b)| a == b)
+            .count();
+        for _ in kept..composer.preedit.len() {
+            self.tap(XK_BACKSPACE).await?;
+        }
+        for k in target[kept..].chars() {
+            self.tap(keysym_for_char(k)).await?;
+        }
+        composer.preedit = target;
+        Ok(())
+    }
+
+    async fn commit(&self, text: &str) -> zbus::Result<()> {
+        let mut composer = self.composer.lock().await;
+        let mut rest = text;
+        if !composer.preedit.is_empty() {
+            let first = text.chars().next();
+            if first.and_then(hangul::keys).as_deref() == Some(composer.preedit.as_str()) {
+                self.finish_preedit(&mut composer).await?;
+                rest = &text[first.map_or(0, char::len_utf8)..];
+            } else {
+                for _ in 0..composer.preedit.len() {
+                    self.tap(XK_BACKSPACE).await?;
+                }
+                composer.preedit.clear();
+            }
+        }
+        self.type_text(&mut composer, rest).await
+    }
+
+    async fn type_text(&self, composer: &mut Composer, text: &str) -> zbus::Result<()> {
+        let mut unmapped = String::new();
+        for c in text.chars() {
+            let keys = self.hangul.as_ref().and(hangul::keys(c));
+            if !c.is_ascii() && keys.is_none() {
+                unmapped.push(c);
+                continue;
+            }
+            if !unmapped.is_empty() {
+                self.paste(&unmapped).await?;
+                unmapped.clear();
+            }
+            match (&self.hangul, keys) {
+                (Some(ime), Some(keys)) => {
+                    self.set_mode(composer, ime, true).await?;
+                    for k in keys.chars() {
+                        self.tap(keysym_for_char(k)).await?;
+                    }
+                    self.toggle(ime.toggle).await?;
+                    self.toggle(ime.toggle).await?;
+                }
+                (ime, _) => {
+                    if let Some(ime) = ime {
+                        self.set_mode(composer, ime, false).await?;
+                    }
                     self.tap(keysym_for_char(c)).await?;
                 }
-                Ok(())
             }
-            Input::Text { text } => self.paste(text).await,
+        }
+        if !unmapped.is_empty() {
+            self.paste(&unmapped).await?;
+        }
+        Ok(())
+    }
+
+    async fn finish_preedit(&self, composer: &mut Composer) -> zbus::Result<()> {
+        if let (Some(ime), false) = (&self.hangul, composer.preedit.is_empty()) {
+            self.toggle(ime.toggle).await?;
+            self.toggle(ime.toggle).await?;
+        }
+        composer.preedit.clear();
+        Ok(())
+    }
+
+    async fn set_mode(&self, composer: &mut Composer, ime: &Hangul, on: bool) -> zbus::Result<()> {
+        if composer.hangul_mode.is_none() {
+            ime.reset().await?;
+            tokio::time::sleep(ENGINE_SETTLE).await;
+            composer.hangul_mode = Some(ime.starts_in_hangul);
+        }
+        if composer.hangul_mode != Some(on) {
+            self.toggle(ime.toggle).await?;
+            composer.hangul_mode = Some(on);
+        }
+        Ok(())
+    }
+
+    async fn toggle(&self, toggle: Toggle) -> zbus::Result<()> {
+        match toggle {
+            Toggle::Keysym(keysym) => self.tap(keysym).await,
+            Toggle::ShiftSpace => {
+                self.rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
+                self.tap(XK_SPACE).await?;
+                self.rd.notify_keyboard_keysym(XK_SHIFT_L, false).await
+            }
         }
     }
 }

@@ -1,5 +1,7 @@
 mod config;
 mod control;
+mod hangul;
+mod ibus;
 mod media;
 mod mutter;
 mod pairing;
@@ -98,6 +100,13 @@ struct ProbeArgs {
     /// Type this text.
     #[arg(long = "type")]
     text: Option<String>,
+    /// Replay input method steps separated by '|': "~text" composes, "=text" commits, "^" is
+    /// a backspace key. For example "~ㅎ|~하|~한|=한|~ㄱ|~그|~글|=글".
+    #[arg(long)]
+    ime: Option<String>,
+    /// Tap with one finger at this normalized position.
+    #[arg(long, value_parser = parse_point)]
+    tap: Option<(f32, f32)>,
 }
 
 fn parse_point(s: &str) -> Result<(f32, f32), String> {
@@ -141,6 +150,8 @@ async fn main() -> Result<()> {
                 out: a.out,
                 click: a.click,
                 text: a.text,
+                ime: a.ime,
+                tap: a.tap,
             })
             .await
         }

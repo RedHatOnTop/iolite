@@ -142,7 +142,10 @@ class StreamActivity : Activity() {
         }
         val keysym = Keysyms.forKeyEvent(event) ?: return super.dispatchKeyEvent(event)
         when (event.action) {
-            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) keyboard.key(keysym, true)
+            KeyEvent.ACTION_DOWN -> if (event.repeatCount == 0) {
+                keyboard.finishComposition()
+                keyboard.key(keysym, true)
+            }
             KeyEvent.ACTION_UP -> keyboard.key(keysym, false)
         }
         return true
@@ -204,7 +207,10 @@ class StreamActivity : Activity() {
     }
 
     private fun bindKey(id: Int, keysym: Int) {
-        findViewById<View>(id).setOnClickListener { keyboard.send(keysym) }
+        findViewById<View>(id).setOnClickListener {
+            keyboard.finishComposition()
+            keyboard.send(keysym)
+        }
     }
 
     private fun refreshModifiers() {
@@ -232,6 +238,7 @@ class StreamActivity : Activity() {
     }
 
     private fun onTouchInteract() {
+        keyboard.finishComposition()
         if (toolbarShown) slideToolbar(false)
     }
 

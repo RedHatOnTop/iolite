@@ -12,7 +12,7 @@ pub mod wire;
 use serde::{Deserialize, Serialize};
 
 pub const ALPN: &[u8] = b"iolite/1";
-pub const PROTOCOL_VERSION: u16 = 1;
+pub const PROTOCOL_VERSION: u16 = 2;
 pub const DEFAULT_PORT: u16 = 46100;
 /// Name sent in the TLS handshake. Peers are identified by certificate fingerprint, not by name.
 pub const SERVER_NAME: &str = "iolite";
@@ -124,6 +124,12 @@ pub enum Input {
         keysym: u32,
         down: bool,
     },
+    /// The input method's composing text, sent each time it changes. The host shows it in the
+    /// focused application as it would show its own input method's preedit.
+    Compose {
+        text: String,
+    },
+    /// Committed text. It replaces the composing text, if there is any.
     Text {
         text: String,
     },
