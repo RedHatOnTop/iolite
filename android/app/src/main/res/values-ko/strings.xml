@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">iolite</string>
+    <string name="tagline">GNOME 컴퓨터를 위한 원격 데스크톱</string>
+    <string name="card_computer">컴퓨터</string>
+    <string name="host_hint">Tailscale 이름 또는 주소</string>
+    <string name="connect">연결</string>
+    <string name="recent">최근</string>
+    <string name="paired">페어링됨</string>
+    <string name="not_paired">페어링 안 됨</string>
+    <string name="forget_title">%1$s 기록을 지울까요?</string>
+    <string name="forget">지우기</string>
+    <string name="cancel">취소</string>
+    <string name="this_device">이 기기</string>
+    <string name="host_required">컴퓨터 주소를 입력하세요</string>
+    <string name="port_invalid">1~65535 사이의 포트를 입력하세요</string>
+    <string name="video_failed">이 기기에서 영상 디코더를 시작할 수 없습니다</string>
+    <string name="pair_cancelled">페어링을 취소했습니다</string>
+    <string name="disconnected">연결을 끊었습니다</string>
+    <string name="connecting_to">%1$s에 연결 중</string>
+    <string name="reconnecting">다시 연결 중</string>
+    <string name="pair_with">%1$s와 페어링</string>
+    <string name="pair_body">컴퓨터에 같은 코드가 보이면 수락하세요.</string>
+    <string name="reconnect">다시 연결</string>
+    <string name="back">뒤로</string>
+    <string name="keyboard">키보드</string>
+    <string name="input_touch">터치 입력</string>
+    <string name="input_trackpad">트랙패드 입력</string>
+    <string name="disconnect">연결 끊기</string>
+    <string name="key_esc">Esc</string>
+    <string name="key_tab">Tab</string>
+    <string name="key_ctrl">Ctrl</string>
+    <string name="key_alt">Alt</string>
+    <string name="key_super">Super</string>
+    <string name="key_left">←</string>
+    <string name="key_up">↑</string>
+    <string name="key_down">↓</string>
+    <string name="key_right">→</string>
+</resources>
