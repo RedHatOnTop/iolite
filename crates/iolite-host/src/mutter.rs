@@ -142,7 +142,7 @@ const XK_SHIFT_R: u32 = 0xffe2;
 const XK_ALT_R: u32 = 0xffea;
 const XK_INSERT: u32 = 0xff63;
 /// IBus applies a new engine after SetGlobalEngine returns.
-const ENGINE_SETTLE: Duration = Duration::from_millis(150);
+const ENGINE_SETTLE: Duration = Duration::from_millis(200);
 const TEXT_MIME_TYPES: [&str; 5] = [
     "text/plain;charset=utf-8",
     "text/plain",
@@ -260,6 +260,9 @@ impl DesktopSession {
             .context("Mutter did not open a PipeWire stream")?
             .context("PipeWire stream signal ended")?;
         let node_id = *signal.args()?.node_id();
+        if let Err(e) = warm_up_keyboard(&rd).await {
+            tracing::debug!("warming up the keyboard: {e}");
+        }
         let clipboard = Arc::new(Clipboard::default());
         let transfers = tokio::spawn(serve_clipboard(rd.clone(), clipboard.clone()));
         if let Err(e) = rd.enable_clipboard(HashMap::new()).await {
@@ -434,7 +437,8 @@ impl DesktopSession {
                     self.toggle(ime.toggle).await?;
                 }
                 (ime, _) => {
-                    if let Some(ime) = ime {
+                    // Hangul mode passes digits, punctuation and space through unchanged.
+                    if let (Some(ime), true) = (ime, c.is_ascii_alphabetic()) {
                         self.set_mode(composer, ime, false).await?;
                     }
                     self.tap(keysym_for_char(c)).await?;
@@ -456,16 +460,18 @@ impl DesktopSession {
         Ok(())
     }
 
+    /// Every switch starts from a reset rather than from the tracked mode: one toggle the
+    /// input method missed would otherwise garble everything typed after it.
     async fn set_mode(&self, composer: &mut Composer, ime: &Hangul, on: bool) -> zbus::Result<()> {
-        if composer.hangul_mode.is_none() {
-            ime.reset().await?;
-            tokio::time::sleep(ENGINE_SETTLE).await;
-            composer.hangul_mode = Some(ime.starts_in_hangul);
+        if composer.hangul_mode == Some(on) {
+            return Ok(());
         }
-        if composer.hangul_mode != Some(on) {
+        ime.reset().await?;
+        tokio::time::sleep(ENGINE_SETTLE).await;
+        if ime.starts_in_hangul != on {
             self.toggle(ime.toggle).await?;
-            composer.hangul_mode = Some(on);
         }
+        composer.hangul_mode = Some(on);
         Ok(())
     }
 
@@ -523,6 +529,16 @@ impl DesktopSession {
         }
         Ok(())
     }
+}
+
+/// Mutter loses the first key events of a new session; these Shift taps absorb them.
+async fn warm_up_keyboard(rd: &RemoteDesktopSessionProxy<'_>) -> zbus::Result<()> {
+    for pause in [100, 50] {
+        rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
+        rd.notify_keyboard_keysym(XK_SHIFT_L, false).await?;
+        tokio::time::sleep(Duration::from_millis(pause)).await;
+    }
+    Ok(())
 }
 
 /// Answers paste requests with the text last put on the clipboard.

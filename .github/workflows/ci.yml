@@ -125,9 +125,11 @@ jobs:
           script: |
             adb install -r iolite.apk
             adb shell settings put secure immersive_mode_confirmations confirmed
+            adb shell settings put global hide_error_dialogs 1
             adb logcat -c
             adb shell am start -n io.github.redhatontop.iolite/.MainActivity --es host 10.0.2.2 --ei port 46100 --ez autoconnect true
             sleep 30
+            adb shell am broadcast -a android.intent.action.CLOSE_SYSTEM_DIALOGS
             adb exec-out screencap -p > stream.png
             adb shell input tap 540 1200
             sleep 3
