@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use std::io::Write;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -144,7 +145,27 @@ const TEXT_MIME_TYPES: [&str; 5] = [
 #[derive(Default)]
 struct Clipboard {
     text: Mutex<String>,
+    /// Transfers answered so far.
+    transfers: AtomicU64,
     served: Notify,
+}
+
+impl Clipboard {
+    /// Waits until more than `seen` transfers have been answered.
+    async fn transfer_after(&self, seen: u64, timeout: Duration) -> bool {
+        let deadline = tokio::time::Instant::now() + timeout;
+        loop {
+            let served = self.served.notified();
+            tokio::pin!(served);
+            served.as_mut().enable();
+            if self.transfers.load(Ordering::Acquire) > seen {
+                return true;
+            }
+            if tokio::time::timeout_at(deadline, served).await.is_err() {
+                return false;
+            }
+        }
+    }
 }
 
 pub struct DesktopSession {
@@ -313,23 +334,29 @@ impl DesktopSession {
     /// other non-ASCII text, so such text goes through the clipboard. Shift+Insert pastes in
     /// GTK, Chromium and Electron apps and in xterm.js terminals; VTE terminals paste the
     /// primary selection on it instead.
+    ///
+    /// Mutter's clipboard manager copies every new selection as soon as it is set, so the first
+    /// transfer after SetSelection is that copy; the application's paste is the one after the key.
     async fn paste(&self, text: &str) -> zbus::Result<()> {
-        *self.clipboard.text.lock().unwrap() = text.to_owned();
-        let served = self.clipboard.served.notified();
-        tokio::pin!(served);
-        served.as_mut().enable();
+        let clipboard = &self.clipboard;
+        *clipboard.text.lock().unwrap() = text.to_owned();
+        let seen = clipboard.transfers.load(Ordering::Acquire);
         self.rd
             .set_selection(HashMap::from([(
                 "mime-types",
                 Value::from(TEXT_MIME_TYPES.to_vec()),
             )]))
             .await?;
+        clipboard
+            .transfer_after(seen, Duration::from_millis(150))
+            .await;
+        let seen = clipboard.transfers.load(Ordering::Acquire);
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, true).await?;
         self.tap(XK_INSERT).await?;
         self.rd.notify_keyboard_keysym(XK_SHIFT_L, false).await?;
-        if tokio::time::timeout(Duration::from_millis(500), served)
+        if !clipboard
+            .transfer_after(seen, Duration::from_millis(500))
             .await
-            .is_err()
         {
             tracing::debug!("no application asked for the pasted text");
         }
@@ -360,6 +387,7 @@ async fn serve_clipboard(rd: RemoteDesktopSessionProxy<'static>, clipboard: Arc<
             }
         };
         let _ = rd.selection_write_done(serial, written).await;
+        clipboard.transfers.fetch_add(1, Ordering::AcqRel);
         clipboard.served.notify_waiters();
     }
 }
