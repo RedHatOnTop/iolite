@@ -68,17 +68,23 @@ with the same code: accept it there only if the codes match. If notifications ar
 one.
 
 On the phone, tap the handle on the right edge for the keyboard, the input mode and disconnect.
-Touch mode passes your fingers through as touches; trackpad mode moves the pointer (tap to
-click, two fingers to scroll or right-click, long press to right-click, tap and drag to drag).
+In touch mode the finger is the pointer: tap to click where you tap, drag to drag, hold to
+right-click. In trackpad mode the phone is a touchpad: slide to move the pointer, tap to click,
+tap and drag to drag. In both, two fingers scroll, and a two-finger tap right-clicks.
+
+## Korean input
+
+When the computer's input method is ibus-hangul with the dubeolsik layout, Korean typed on the
+phone is typed again as dubeolsik keys, so ibus-hangul composes it in the focused application
+while you type, terminals included. iolite switches ibus-hangul between Hangul and Latin mode by
+itself; it does so by re-creating the engine, so the mode indicator in the top bar may flicker.
 
 ## Known limits
 
 - Mutter can only type characters that exist in the computer's keyboard layout. Anything else
-  (Hangul, accented letters) is put on the clipboard and pasted with Shift+Insert. That works in
-  GTK apps, browsers and Electron apps, and in xterm.js terminals; GNOME Terminal and Ptyxis
-  paste the primary selection on Shift+Insert instead. Pasting replaces the clipboard.
-- Text typed from the phone goes through the computer's input method. If it is in Hangul mode,
-  Latin letters get composed into Hangul; switch it to Latin first.
+  (accented letters, emoji, Korean without ibus-hangul) is put on the clipboard and pasted with
+  Shift+Insert, which replaces the clipboard. That works in GTK, browser and Electron apps;
+  GNOME Terminal and Ptyxis paste the primary selection on Shift+Insert instead.
 - One monitor per session: the primary one, or `iolite serve --monitor <connector>`.
 - Encoding needs a VA-API AV1 encoder; there is no software fallback for the desktop yet.
 

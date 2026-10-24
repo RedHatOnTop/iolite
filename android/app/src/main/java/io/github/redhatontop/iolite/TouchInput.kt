@@ -84,17 +84,42 @@ class TouchInput(
         return true
     }
 
+    /**
+     * The finger is the pointer: tap to click where it lands, drag to drag, hold to right-click.
+     * GNOME apps get these as mouse input rather than touch, which works in every app and keeps
+     * the computer's on-screen keyboard from popping up.
+     */
     private fun touchMode(event: MotionEvent) {
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN ->
-                sendTouch(Native.TOUCH_DOWN, event, event.actionIndex)
-            MotionEvent.ACTION_MOVE ->
-                for (i in 0 until event.pointerCount) sendTouch(Native.TOUCH_MOVE, event, i)
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP ->
-                sendTouch(Native.TOUCH_UP, event, event.actionIndex)
-            MotionEvent.ACTION_CANCEL ->
-                for (i in 0 until event.pointerCount) sendTouch(Native.TOUCH_CANCEL, event, i)
+            MotionEvent.ACTION_DOWN -> {
+                beginGesture(event)
+                dragArmed = false
+                pointerMove(event.x, event.y)
+            }
+            MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount == 2) beginMultiTouch(event)
+            MotionEvent.ACTION_MOVE -> when {
+                multiTouch -> multiTouchMove(event)
+                event.pointerCount == 1 -> directMove(event)
+            }
+            MotionEvent.ACTION_POINTER_UP -> if (multiTouch && event.pointerCount == 2) endMultiTouch(event)
+            MotionEvent.ACTION_UP -> {
+                if (dragging) pointerMove(event.x, event.y)
+                endGesture(event)
+            }
+            MotionEvent.ACTION_CANCEL -> cancelGesture()
         }
+    }
+
+    private fun directMove(event: MotionEvent) {
+        travel = max(travel, distance(downX, downY, event.x, event.y))
+        // Within the slop the press stays where the finger landed, so a tap clicks there.
+        if (travel <= slop) return
+        handler.removeCallbacks(longPress)
+        if (!dragging && !longPressFired) {
+            dragging = true
+            Native.button(remote.handle, Native.BUTTON_LEFT, true)
+        }
+        pointerMove(event.x, event.y)
     }
 
     private fun trackpadMode(event: MotionEvent) {
@@ -192,7 +217,9 @@ class TouchInput(
         if (dragging) {
             dragging = false
             Native.button(remote.handle, Native.BUTTON_LEFT, false)
-        } else if (!longPressFired && travel <= slop && event.eventTime - downTime < TAP_MS) {
+        } else if (!longPressFired && travel <= slop &&
+            (mode == InputMode.TOUCH || event.eventTime - downTime < TAP_MS)
+        ) {
             click(Native.BUTTON_LEFT)
             lastTapEnd = event.eventTime
         }
@@ -213,16 +240,6 @@ class TouchInput(
         if (multiTouch || dragging || travel > slop) return
         longPressFired = true
         click(Native.BUTTON_RIGHT)
-    }
-
-    private fun sendTouch(phase: Int, event: MotionEvent, index: Int) {
-        Native.touch(
-            remote.handle,
-            phase,
-            event.getPointerId(index),
-            normalizeX(event.getX(index)),
-            normalizeY(event.getY(index)),
-        )
     }
 
     private fun pointerMove(x: Float, y: Float) {
