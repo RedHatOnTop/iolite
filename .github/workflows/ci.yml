@@ -47,7 +47,7 @@ jobs:
     env:
       IOLITE_KEYSTORE_B64: ${{ secrets.IOLITE_KEYSTORE_B64 }}
       IOLITE_KEYSTORE_PASSWORD: ${{ secrets.IOLITE_KEYSTORE_PASSWORD }}
-      IOLITE_KEY_ALIAS: ${{ secrets.IOLITE_KEY_ALIAS }}
+      IOLITE_KEY_ALIAS: release-key
       IOLITE_KEY_PASSWORD: ${{ secrets.IOLITE_KEY_PASSWORD }}
     steps:
       - uses: actions/checkout@v4

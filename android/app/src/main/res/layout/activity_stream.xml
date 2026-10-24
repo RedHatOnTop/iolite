@@ -158,7 +158,7 @@
             android:id="@+id/keyboardButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/keyboard"
             android:src="@drawable/ic_keyboard" />
 
@@ -166,14 +166,14 @@
             android:id="@+id/inputModeButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_hand" />
 
         <ImageButton
             android:id="@+id/disconnectButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
+            android:background="?android:attr/selectableItemBackgroundBorderless"
             android:contentDescription="@string/disconnect"
             android:src="@drawable/ic_disconnect" />
     </LinearLayout>

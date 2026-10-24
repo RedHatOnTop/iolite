@@ -311,7 +311,7 @@ class StreamActivity : Activity() {
         session = null
         remote.handle = 0L
         releaseMedia()
-        if (welcomed && started) {
+        if (welcomed && started && !reason.contains(TAKEN_OVER)) {
             scheduleReconnect()
         } else {
             welcomed = false
@@ -464,5 +464,8 @@ class StreamActivity : Activity() {
         private const val TOOLBAR_SLIDE_MS = 180L
         private const val STATUS_PULSE_MS = 900L
         private val RETRY_SECONDS = longArrayOf(1, 2, 4, 8, 16, 30)
+
+        /** Part of the host's close reason when another device takes the session; retrying would take it back. */
+        private const val TAKEN_OVER = "took over"
     }
 }

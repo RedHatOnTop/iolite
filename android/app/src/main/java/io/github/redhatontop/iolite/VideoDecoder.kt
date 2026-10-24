@@ -22,6 +22,7 @@ class VideoDecoder(
     private val freeInputs = ArrayDeque<Int>()
     private val pending = ArrayDeque<Frame>()
     private val thread = HandlerThread("iolite-video").apply { start() }
+    private val handler = Handler(thread.looper)
     private var awaitingKeyframe = true
     private var released = false
     private var rendered = false
@@ -50,7 +51,7 @@ class VideoDecoder(
 
         override fun onError(mediaCodec: MediaCodec, e: MediaCodec.CodecException) {
             Log.w(TAG, "video decoder failed", e)
-            release()
+            synchronized(lock) { if (released) return }
             onFailure()
         }
     }
@@ -66,9 +67,10 @@ class VideoDecoder(
             setInteger(MediaFormat.KEY_PRIORITY, 0)
             setInteger(MediaFormat.KEY_OPERATING_RATE, 120)
             setInteger("vendor.qti-ext-dec-low-latency.enable", 1)
+            setInteger(MediaFormat.KEY_MAX_INPUT_SIZE, width * height)
         }
         codec = MediaCodec.createByCodecName(info.name)
-        codec.setCallback(callback, Handler(thread.looper))
+        codec.setCallback(callback, handler)
         codec.configure(format, surface, null, 0)
         codec.start()
         Log.i(TAG, "video decoder $codecName")
@@ -109,6 +111,14 @@ class VideoDecoder(
             val frame = pending.removeFirst()
             val buffer = codec.getInputBuffer(index) ?: continue
             buffer.clear()
+            if (frame.data.size > buffer.remaining()) {
+                Log.w(TAG, "dropping a ${frame.data.size}-byte frame; input buffer holds ${buffer.remaining()}")
+                freeInputs.addFirst(index)
+                awaitingKeyframe = true
+                pending.clear()
+                handler.post { requestKeyframe() }
+                return
+            }
             buffer.put(frame.data)
             codec.queueInputBuffer(index, 0, frame.data.size, frame.ptsUs, 0)
         }
