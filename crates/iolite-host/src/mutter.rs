@@ -268,15 +268,10 @@ impl DesktopSession {
         }
     }
 
-    /// `frame` is the video frame size; Mutter maps stream pixels to the monitor.
-    pub async fn inject(&self, input: &Input, frame: (u32, u32)) -> zbus::Result<()> {
-        let (w, h) = (f64::from(frame.0), f64::from(frame.1));
-        let pos = |x: f32, y: f32| {
-            (
-                f64::from(x).clamp(0.0, 1.0) * w,
-                f64::from(y).clamp(0.0, 1.0) * h,
-            )
-        };
+    /// `frame` is the video frame size and `scale` the virtual monitor's scale, 1 for a real
+    /// monitor; see [`stream_position`].
+    pub async fn inject(&self, input: &Input, frame: (u32, u32), scale: f64) -> zbus::Result<()> {
+        let pos = |x: f32, y: f32| stream_position(x, y, frame, scale);
         if let Input::Touch {
             phase: TouchPhase::Down,
             ..
@@ -502,6 +497,16 @@ impl DesktopSession {
     }
 }
 
+/// Turns a position on the video, 0..1, into the stream coordinates Mutter takes. Mutter maps
+/// a real monitor's stream through the monitor's scale itself, but a virtual monitor's only by
+/// its offset in the layout, so positions on those are in logical pixels.
+fn stream_position(x: f32, y: f32, frame: (u32, u32), scale: f64) -> (f64, f64) {
+    (
+        f64::from(x).clamp(0.0, 1.0) * f64::from(frame.0) / scale,
+        f64::from(y).clamp(0.0, 1.0) * f64::from(frame.1) / scale,
+    )
+}
+
 /// Mutter loses the first key events of a new session; these Shift taps absorb them.
 async fn warm_up_keyboard(rd: &RemoteDesktopSessionProxy<'_>) -> zbus::Result<()> {
     for pause in [100, 50] {
@@ -537,5 +542,16 @@ async fn serve_clipboard(rd: RemoteDesktopSessionProxy<'static>, clipboard: Arc<
         let _ = rd.selection_write_done(serial, written).await;
         clipboard.transfers.fetch_add(1, Ordering::AcqRel);
         clipboard.served.notify_waiters();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn virtual_monitor_positions_are_logical() {
+        assert_eq!(stream_position(0.5, 0.5, (1080, 2400), 2.0), (270.0, 600.0));
+        assert_eq!(stream_position(1.5, -1.0, (1920, 1200), 1.0), (1920.0, 0.0));
     }
 }

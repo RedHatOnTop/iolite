@@ -122,6 +122,9 @@ struct ProbeArgs {
     /// Repeatable.
     #[arg(long, value_parser = parse_resize)]
     resize: Vec<((u32, u32), f32)>,
+    /// Send the click, text and tap this many seconds after the welcome.
+    #[arg(long, default_value_t = 0.0)]
+    input_at: f32,
 }
 
 fn parse_display(s: &str) -> Result<DisplayMode, String> {
@@ -192,6 +195,7 @@ async fn main() -> Result<()> {
                 size: a.size,
                 scale: a.scale,
                 resize: a.resize,
+                input_at: a.input_at,
             })
             .await
         }

@@ -147,6 +147,17 @@ impl Placement {
         Ok(Arranged::Applied)
     }
 
+    /// The scale the client's screen has now, if it is on.
+    pub async fn scale(&self, monitors: &Monitors) -> Result<Option<f64>> {
+        let now = monitors.layout().await?;
+        Ok(now.find_new(&self.before).and_then(|ours| {
+            now.logical
+                .iter()
+                .find(|l| l.connectors.contains(&ours))
+                .map(|l| l.scale)
+        }))
+    }
+
     /// Puts the layout from before back once the client's screen is gone.
     pub async fn restore(&self, monitors: &Monitors) -> Result<()> {
         let deadline = tokio::time::Instant::now() + Duration::from_secs(3);

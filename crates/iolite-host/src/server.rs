@@ -412,6 +412,8 @@ struct Feed {
     video: Mutex<Option<Arc<VideoPipeline>>>,
     /// Size of the frames the client is getting; input positions are relative to it.
     size: Mutex<(u32, u32)>,
+    /// Scale of the client's own screen, which input positions on it are divided by.
+    scale: Mutex<f64>,
     frames: AtomicU64,
 }
 
@@ -423,6 +425,7 @@ impl Feed {
             kbps: AtomicU32::new(kbps),
             video: Mutex::new(None),
             size: Mutex::new((0, 0)),
+            scale: Mutex::new(1.0),
             frames: AtomicU64::new(0),
         }
     }
@@ -498,6 +501,14 @@ impl Feed {
         *self.size.lock().unwrap() = size;
     }
 
+    fn scale(&self) -> f64 {
+        *self.scale.lock().unwrap()
+    }
+
+    fn set_scale(&self, scale: f64) {
+        *self.scale.lock().unwrap() = scale;
+    }
+
     fn frames(&self) -> u64 {
         self.frames.load(Ordering::Relaxed)
     }
@@ -541,6 +552,13 @@ async fn follow_screens(
             }
             () = wait_until(settle) => {
                 settle = None;
+                if let Some((monitors, place)) = placement {
+                    match place.scale(monitors).await {
+                        Ok(Some(scale)) => feed.set_scale(scale),
+                        Ok(None) => {}
+                        Err(e) => warn!("{e:#}"),
+                    }
+                }
                 let Some((monitors, place)) = placement.filter(|_| attempts < MAX_ARRANGE_ATTEMPTS)
                 else {
                     watch = Some(restart(feed, size).await?);
@@ -720,7 +738,7 @@ async fn control(
         match msg {
             ClientMsg::Input(input) => match desktop {
                 Some(d) => {
-                    if let Err(e) = d.inject(&input, feed.size()).await {
+                    if let Err(e) = d.inject(&input, feed.size(), feed.scale()).await {
                         debug!("input {input:?} rejected: {e}");
                     }
                 }

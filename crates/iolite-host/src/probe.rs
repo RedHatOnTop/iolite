@@ -16,6 +16,7 @@ use tokio::sync::mpsc;
 use crate::config;
 use crate::pairing::spaced;
 
+#[derive(Clone)]
 pub struct ProbeOptions {
     pub host: String,
     pub seconds: u64,
@@ -28,6 +29,7 @@ pub struct ProbeOptions {
     pub size: (u32, u32),
     pub scale: f32,
     pub resize: Vec<((u32, u32), f32)>,
+    pub input_at: f32,
 }
 
 const XK_BACKSPACE: u32 = 0xff08;
@@ -102,7 +104,11 @@ pub async fn probe(opts: ProbeOptions) -> Result<()> {
                 stats.welcomed = Some(Instant::now());
                 deadline = Some(tokio::time::Instant::now() + Duration::from_secs(opts.seconds));
                 if let Some(tx) = &commands {
-                    send_test_input(tx, &opts);
+                    let (input, o) = (tx.clone(), opts.clone());
+                    tokio::spawn(async move {
+                        tokio::time::sleep(Duration::from_secs_f32(o.input_at)).await;
+                        send_test_input(&input, &o);
+                    });
                     let keyframe = tx.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_secs(1)).await;
