@@ -221,7 +221,8 @@ class StreamActivity : Activity() {
 
     private fun showMore(anchor: View) {
         val content = layoutInflater.inflate(R.layout.popup_more, root, false)
-        val popup = PopupWindow(content, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        val width = dp(MENU_WIDTH_DP).toInt()
+        val popup = PopupWindow(content, width, ViewGroup.LayoutParams.WRAP_CONTENT, true)
         val touchItem = content.findViewById<TextView>(R.id.menuTouch)
         val trackpadItem = content.findViewById<TextView>(R.id.menuTrackpad)
         styleMenuItem(touchItem, touch.mode == InputMode.TOUCH)
@@ -239,10 +240,13 @@ class StreamActivity : Activity() {
             disconnect()
         }
         popup.elevation = dp(8f)
-        content.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+            View.MeasureSpec.UNSPECIFIED,
+        )
         popup.showAsDropDown(
             anchor,
-            anchor.width - content.measuredWidth,
+            anchor.width - width,
             -anchor.height - content.measuredHeight - dp(6f).toInt(),
         )
     }
@@ -517,6 +521,7 @@ class StreamActivity : Activity() {
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         private const val TAG = "iolite"
+        private const val MENU_WIDTH_DP = 240f
         private const val STATUS_PULSE_MS = 900L
         private val RETRY_SECONDS = longArrayOf(1, 2, 4, 8, 16, 30)
 

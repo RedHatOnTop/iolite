@@ -269,7 +269,9 @@ class KeyBar @JvmOverloads constructor(
                 bottomMargin = dp(2)
             },
         )
-        addView(grid)
+        // A vertical layout's default child width is match_parent, which would clip the chips
+        // to the caption's width.
+        addView(grid, LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.WRAP_CONTENT))
     }
 
     private fun chip(text: CharSequence, background: Int): TextView = TextView(context).apply {
