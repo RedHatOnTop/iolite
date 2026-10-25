@@ -103,10 +103,10 @@ pub async fn probe(opts: ProbeOptions) -> Result<()> {
                 deadline = Some(tokio::time::Instant::now() + Duration::from_secs(opts.seconds));
                 if let Some(tx) = &commands {
                     send_test_input(tx, &opts);
-                    let tx = tx.clone();
+                    let keyframe = tx.clone();
                     tokio::spawn(async move {
                         tokio::time::sleep(Duration::from_secs(1)).await;
-                        let _ = tx.send(ClientMsg::RequestKeyframe);
+                        let _ = keyframe.send(ClientMsg::RequestKeyframe);
                     });
                     for &((width, height), at) in &opts.resize {
                         let tx = tx.clone();
