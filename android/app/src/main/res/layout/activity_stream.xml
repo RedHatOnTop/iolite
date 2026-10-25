@@ -23,6 +23,27 @@
         android:focusable="true"
         android:focusableInTouchMode="true" />
 
+    <io.github.redhatontop.iolite.KeyBar
+        android:id="@+id/keyBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom"
+        android:background="@drawable/bg_extra_keys"
+        android:orientation="vertical" />
+
+    <ImageButton
+        android:id="@+id/pill"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_gravity="top|start"
+        android:alpha="0.85"
+        android:background="@drawable/bg_pill"
+        android:contentDescription="@string/show_keys"
+        android:elevation="4dp"
+        android:scaleType="center"
+        android:src="@drawable/ic_facet"
+        android:visibility="gone" />
+
     <LinearLayout
         android:id="@+id/statusOverlay"
         android:layout_width="match_parent"
@@ -135,102 +156,6 @@
             android:layout_height="wrap_content"
             android:text="@string/back"
             android:textColor="@color/text_dim" />
-    </LinearLayout>
-
-    <View
-        android:id="@+id/edgeHandle"
-        android:layout_width="6dp"
-        android:layout_height="48dp"
-        android:layout_gravity="end|center_vertical"
-        android:background="@drawable/bg_edge_handle" />
-
-    <LinearLayout
-        android:id="@+id/toolbar"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|center_vertical"
-        android:layout_marginEnd="8dp"
-        android:background="@drawable/bg_toolbar"
-        android:orientation="vertical"
-        android:padding="6dp">
-
-        <ImageButton
-            android:id="@+id/keyboardButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/keyboard"
-            android:src="@drawable/ic_keyboard" />
-
-        <ImageButton
-            android:id="@+id/inputModeButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:src="@drawable/ic_hand" />
-
-        <ImageButton
-            android:id="@+id/disconnectButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="@string/disconnect"
-            android:src="@drawable/ic_disconnect" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/extraKeys"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_gravity="bottom"
-        android:background="@drawable/bg_extra_keys"
-        android:orientation="horizontal"
-        android:visibility="gone">
-
-        <TextView
-            android:id="@+id/keyEsc"
-            style="@style/ExtraKey"
-            android:text="@string/key_esc" />
-
-        <TextView
-            android:id="@+id/keyTab"
-            style="@style/ExtraKey"
-            android:text="@string/key_tab" />
-
-        <TextView
-            android:id="@+id/keyCtrl"
-            style="@style/ExtraKey"
-            android:text="@string/key_ctrl" />
-
-        <TextView
-            android:id="@+id/keyAlt"
-            style="@style/ExtraKey"
-            android:text="@string/key_alt" />
-
-        <TextView
-            android:id="@+id/keySuper"
-            style="@style/ExtraKey"
-            android:text="@string/key_super" />
-
-        <TextView
-            android:id="@+id/keyLeft"
-            style="@style/ExtraKey"
-            android:text="@string/key_left" />
-
-        <TextView
-            android:id="@+id/keyUp"
-            style="@style/ExtraKey"
-            android:text="@string/key_up" />
-
-        <TextView
-            android:id="@+id/keyDown"
-            style="@style/ExtraKey"
-            android:text="@string/key_down" />
-
-        <TextView
-            android:id="@+id/keyRight"
-            style="@style/ExtraKey"
-            android:text="@string/key_right" />
     </LinearLayout>
 
 </FrameLayout>

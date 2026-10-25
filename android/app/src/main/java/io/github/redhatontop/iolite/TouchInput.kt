@@ -17,11 +17,19 @@ class RemoteSession {
     var frameHeight = 1
 }
 
+/** Holds the key bar's latched modifiers around a click or a drag, for Ctrl+click and the like. */
+interface PointerModifiers {
+    fun pointerDown()
+    fun pointerUp()
+}
+
 class TouchInput(
     private val view: View,
     private val remote: RemoteSession,
     var mode: InputMode,
+    private val modifiers: PointerModifiers,
     private val onInteract: () -> Unit,
+    private val onThreeFingerTap: () -> Unit,
 ) {
     private val handler = Handler(Looper.getMainLooper())
     private val slop = TAP_SLOP_DP * view.resources.displayMetrics.density
@@ -37,6 +45,7 @@ class TouchInput(
     private var dragging = false
     private var longPressFired = false
     private var multiTouch = false
+    private var fingers = 0
     private var multiStart = 0L
     private var lastTapEnd = 0L
     private var centroidX = 0f
@@ -96,7 +105,7 @@ class TouchInput(
                 dragArmed = false
                 pointerMove(event.x, event.y)
             }
-            MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount == 2) beginMultiTouch(event)
+            MotionEvent.ACTION_POINTER_DOWN -> addFinger(event)
             MotionEvent.ACTION_MOVE -> when {
                 multiTouch -> multiTouchMove(event)
                 event.pointerCount == 1 -> directMove(event)
@@ -117,7 +126,7 @@ class TouchInput(
         handler.removeCallbacks(longPress)
         if (!dragging && !longPressFired) {
             dragging = true
-            Native.button(remote.handle, Native.BUTTON_LEFT, true)
+            pressButton(Native.BUTTON_LEFT, true)
         }
         pointerMove(event.x, event.y)
     }
@@ -125,7 +134,7 @@ class TouchInput(
     private fun trackpadMode(event: MotionEvent) {
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> beginGesture(event)
-            MotionEvent.ACTION_POINTER_DOWN -> if (event.pointerCount == 2) beginMultiTouch(event)
+            MotionEvent.ACTION_POINTER_DOWN -> addFinger(event)
             MotionEvent.ACTION_MOVE -> when {
                 multiTouch -> multiTouchMove(event)
                 event.pointerCount == 1 -> oneFingerMove(event)
@@ -148,6 +157,7 @@ class TouchInput(
         dragging = false
         longPressFired = false
         multiTouch = false
+        fingers = 1
         scrolled = false
         handler.postDelayed(longPress, LONG_PRESS_MS)
     }
@@ -160,7 +170,7 @@ class TouchInput(
             handler.removeCallbacks(longPress)
             if (dragArmed && !dragging) {
                 dragging = true
-                Native.button(remote.handle, Native.BUTTON_LEFT, true)
+                pressButton(Native.BUTTON_LEFT, true)
             }
         }
         val scale = GAIN * pixelScale()
@@ -169,11 +179,16 @@ class TouchInput(
         lastY = y
     }
 
+    private fun addFinger(event: MotionEvent) {
+        fingers = max(fingers, event.pointerCount)
+        if (event.pointerCount == 2) beginMultiTouch(event)
+    }
+
     private fun beginMultiTouch(event: MotionEvent) {
         handler.removeCallbacks(longPress)
         if (dragging) {
             dragging = false
-            Native.button(remote.handle, Native.BUTTON_LEFT, false)
+            pressButton(Native.BUTTON_LEFT, false)
         }
         dragArmed = false
         multiTouch = true
@@ -200,8 +215,13 @@ class TouchInput(
 
     private fun endMultiTouch(event: MotionEvent) {
         if (scrolled) Native.scroll(remote.handle, 0f, 0f, true)
-        if (!scrolled && centroidTravel <= slop && event.eventTime - multiStart < TAP_MS) {
-            click(Native.BUTTON_RIGHT)
+        val held = event.eventTime - multiStart
+        if (!scrolled && centroidTravel <= slop) {
+            if (fingers >= 3) {
+                if (held < THREE_FINGER_TAP_MS) onThreeFingerTap()
+            } else if (held < TAP_MS) {
+                click(Native.BUTTON_RIGHT)
+            }
         }
         scrolled = false
     }
@@ -216,7 +236,7 @@ class TouchInput(
         }
         if (dragging) {
             dragging = false
-            Native.button(remote.handle, Native.BUTTON_LEFT, false)
+            pressButton(Native.BUTTON_LEFT, false)
         } else if (!longPressFired && travel <= slop &&
             (mode == InputMode.TOUCH || event.eventTime - downTime < TAP_MS)
         ) {
@@ -228,7 +248,7 @@ class TouchInput(
 
     private fun cancelGesture() {
         handler.removeCallbacks(longPress)
-        if (dragging) Native.button(remote.handle, Native.BUTTON_LEFT, false)
+        if (dragging) pressButton(Native.BUTTON_LEFT, false)
         if (scrolled) Native.scroll(remote.handle, 0f, 0f, true)
         dragging = false
         dragArmed = false
@@ -252,12 +272,18 @@ class TouchInput(
             MotionEvent.BUTTON_TERTIARY -> Native.BUTTON_MIDDLE
             else -> Native.BUTTON_LEFT
         }
-        Native.button(remote.handle, button, down)
+        pressButton(button, down)
     }
 
     private fun click(button: Int) {
-        Native.button(remote.handle, button, true)
-        Native.button(remote.handle, button, false)
+        pressButton(button, true)
+        pressButton(button, false)
+    }
+
+    private fun pressButton(button: Int, down: Boolean) {
+        if (down) modifiers.pointerDown()
+        Native.button(remote.handle, button, down)
+        if (!down) modifiers.pointerUp()
     }
 
     private fun centroid(event: MotionEvent): Pair<Float, Float> {
@@ -285,6 +311,7 @@ class TouchInput(
     private companion object {
         const val TAP_SLOP_DP = 12f
         const val TAP_MS = 200L
+        const val THREE_FINGER_TAP_MS = 350L
         const val TAP_DRAG_MS = 300L
         const val LONG_PRESS_MS = 500L
         const val GAIN = 1.4f

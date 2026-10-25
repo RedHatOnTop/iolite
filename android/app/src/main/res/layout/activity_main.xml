@@ -45,95 +45,71 @@
             android:textColor="@color/text_dim"
             android:textSize="14sp" />
 
+        <TextView
+            android:id="@+id/computersLabel"
+            style="@style/Caption"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="36dp"
+            android:text="@string/computers" />
+
+        <LinearLayout
+            android:id="@+id/computerList"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:background="@drawable/bg_card"
+            android:orientation="vertical" />
+
+        <TextView
+            style="@style/Caption"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:text="@string/new_connection" />
+
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="32dp"
+            android:layout_marginTop="10dp"
             android:background="@drawable/bg_card"
             android:orientation="vertical"
             android:padding="20dp">
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/card_computer"
-                android:textColor="@color/text_dim"
-                android:textSize="13sp" />
-
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
                 android:orientation="horizontal">
 
                 <EditText
                     android:id="@+id/hostInput"
+                    style="@style/Field"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="7"
-                    android:background="@drawable/bg_input"
                     android:hint="@string/host_hint"
-                    android:importantForAutofill="no"
-                    android:inputType="textUri"
-                    android:maxLines="1"
-                    android:paddingStart="14dp"
-                    android:paddingTop="12dp"
-                    android:paddingEnd="14dp"
-                    android:paddingBottom="12dp"
-                    android:textColor="@color/text"
-                    android:textColorHint="@color/text_dim"
-                    android:textSize="16sp" />
+                    android:inputType="textUri" />
 
                 <EditText
                     android:id="@+id/portInput"
+                    style="@style/Field"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="10dp"
                     android:layout_weight="3"
-                    android:background="@drawable/bg_input"
-                    android:importantForAutofill="no"
                     android:inputType="number"
-                    android:maxLines="1"
-                    android:paddingStart="14dp"
-                    android:paddingTop="12dp"
-                    android:paddingEnd="14dp"
-                    android:paddingBottom="12dp"
-                    android:text="46100"
-                    android:textColor="@color/text"
-                    android:textSize="16sp" />
+                    android:text="46100" />
             </LinearLayout>
 
             <Button
                 android:id="@+id/connectButton"
+                style="@style/HoneyButton"
                 android:layout_width="match_parent"
                 android:layout_height="52dp"
                 android:layout_marginTop="16dp"
-                android:background="@drawable/bg_button_honey"
-                android:elevation="0dp"
-                android:stateListAnimator="@null"
                 android:text="@string/connect"
-                android:textColor="@color/honey_ink"
-                android:textSize="16sp"
-                android:textStyle="bold"
-                android:textAllCaps="false" />
+                android:textSize="16sp" />
         </LinearLayout>
-
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="36dp"
-            android:text="@string/recent"
-            android:textAllCaps="true"
-            android:textColor="@color/text_dim"
-            android:textSize="12sp"
-            android:letterSpacing="0.12" />
-
-        <LinearLayout
-            android:id="@+id/recentList"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:orientation="vertical" />
 
         <TextView
             android:id="@+id/fingerprintText"

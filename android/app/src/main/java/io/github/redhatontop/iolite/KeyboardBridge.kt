@@ -10,15 +10,26 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputConnection
 import android.view.inputmethod.InputMethodManager
 
+/** How a modifier key on the key bar is latched. */
+enum class Latch {
+    /** For the next key, click or shortcut. */
+    ONCE,
+
+    /** Held down on the computer until it is tapped again. */
+    LOCKED,
+}
+
 class KeyboardBridge @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
-) : View(context, attrs) {
+) : View(context, attrs), PointerModifiers {
 
     lateinit var remote: RemoteSession
-    var onStickyChanged: (() -> Unit)? = null
+    var onLatchChanged: (() -> Unit)? = null
 
-    private val sticky = mutableSetOf<Int>()
+    private val latches = linkedMapOf<Int, Latch>()
+    private val heldWithKey = mutableMapOf<Int, List<Int>>()
+    private var heldWithPointer: List<Int>? = null
     private var composing = ""
 
     override fun onCheckIsTextEditor(): Boolean = true
@@ -40,27 +51,65 @@ class KeyboardBridge @JvmOverloads constructor(
             .hideSoftInputFromWindow(windowToken, 0)
     }
 
-    fun toggleSticky(keysym: Int) {
-        if (!sticky.remove(keysym)) sticky.add(keysym)
-        onStickyChanged?.invoke()
+    fun latch(keysym: Int): Latch? = latches[keysym]
+
+    /** Latches a modifier for the next action, or releases it. */
+    fun tapModifier(keysym: Int) {
+        when (latches.remove(keysym)) {
+            null -> latches[keysym] = Latch.ONCE
+            Latch.LOCKED -> key(keysym, false)
+            Latch.ONCE -> Unit
+        }
+        onLatchChanged?.invoke()
     }
 
-    fun isSticky(keysym: Int): Boolean = keysym in sticky
+    fun lockModifier(keysym: Int) {
+        if (latches[keysym] == Latch.LOCKED) return
+        latches[keysym] = Latch.LOCKED
+        key(keysym, true)
+        onLatchChanged?.invoke()
+    }
 
-    fun send(keysym: Int) {
-        val modifiers = sticky.toList()
-        modifiers.forEach { key(it, true) }
-        press(keysym)
-        modifiers.asReversed().forEach { key(it, false) }
-        if (sticky.isNotEmpty()) {
-            sticky.clear()
-            onStickyChanged?.invoke()
+    /** Lets go of every latch; a new session starts with nothing held. */
+    fun resetLatches() {
+        latches.filterValues { it == Latch.LOCKED }.keys.forEach { key(it, false) }
+        heldWithKey.values.forEach(::release)
+        heldWithPointer?.let(::release)
+        heldWithKey.clear()
+        heldWithPointer = null
+        if (latches.isNotEmpty()) {
+            latches.clear()
+            onLatchChanged?.invoke()
         }
     }
 
-    fun press(keysym: Int) {
+    /** Presses [keys] together with the latched modifiers, then releases them in reverse. */
+    fun sendShortcut(keys: List<Int>) {
+        finishComposition()
+        pressLatched(keys)
+    }
+
+    /** A key bar key goes down with the latched modifiers and stays down until [keyUp], so it repeats. */
+    fun keyDown(keysym: Int) {
+        if (keysym in heldWithKey) return
+        finishComposition()
+        heldWithKey[keysym] = takeOnce()
         key(keysym, true)
+    }
+
+    fun keyUp(keysym: Int) {
+        val modifiers = heldWithKey.remove(keysym) ?: return
         key(keysym, false)
+        release(modifiers)
+    }
+
+    override fun pointerDown() {
+        if (heldWithPointer == null) heldWithPointer = takeOnce()
+    }
+
+    override fun pointerUp() {
+        heldWithPointer?.let(::release)
+        heldWithPointer = null
     }
 
     fun key(keysym: Int, down: Boolean) {
@@ -72,6 +121,30 @@ class KeyboardBridge @JvmOverloads constructor(
         if (composing.isEmpty()) return
         commit(composing)
         restartInput()
+    }
+
+    /** Presses the one-shot modifiers and unlatches them; the caller releases them after its action. */
+    private fun takeOnce(): List<Int> {
+        val once = latches.filterValues { it == Latch.ONCE }.keys.toList()
+        if (once.isEmpty()) return once
+        once.forEach {
+            latches.remove(it)
+            key(it, true)
+        }
+        onLatchChanged?.invoke()
+        return once
+    }
+
+    private fun pressLatched(keys: List<Int>) {
+        val once = takeOnce()
+        val down = keys.filter { latches[it] != Latch.LOCKED && it !in once }
+        down.forEach { key(it, true) }
+        down.asReversed().forEach { key(it, false) }
+        release(once)
+    }
+
+    private fun release(modifiers: List<Int>) {
+        modifiers.asReversed().forEach { key(it, false) }
     }
 
     private fun commit(text: String) {
@@ -86,7 +159,7 @@ class KeyboardBridge @JvmOverloads constructor(
     }
 
     private fun shortcut(text: CharSequence): Int? {
-        if (sticky.isEmpty() || composing.isNotEmpty()) return null
+        if (latches.isEmpty() || composing.isNotEmpty()) return null
         return text.codePoints().toArray().singleOrNull()?.let(Keysyms::forShortcut)
     }
 
@@ -97,14 +170,14 @@ class KeyboardBridge @JvmOverloads constructor(
     private inner class Connection(view: View) : BaseInputConnection(view, false) {
         override fun commitText(text: CharSequence, newCursorPosition: Int): Boolean {
             val keysym = shortcut(text)
-            if (keysym != null) send(keysym) else commit(text.toString())
+            if (keysym != null) pressLatched(listOf(keysym)) else commit(text.toString())
             return true
         }
 
         override fun setComposingText(text: CharSequence, newCursorPosition: Int): Boolean {
             val keysym = shortcut(text)
             if (keysym != null) {
-                send(keysym)
+                pressLatched(listOf(keysym))
                 // Otherwise the input method keeps composing on top of the jamo it just sent.
                 restartInput()
             } else {
@@ -119,13 +192,18 @@ class KeyboardBridge @JvmOverloads constructor(
         }
 
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-            repeat(beforeLength.coerceIn(0, MAX_DELETE)) { press(Keysyms.DEL) }
-            repeat(afterLength.coerceIn(0, MAX_DELETE)) { press(Keysyms.FORWARD_DEL) }
+            repeat(beforeLength.coerceIn(0, MAX_DELETE)) { pressLatched(listOf(Keysyms.DEL)) }
+            repeat(afterLength.coerceIn(0, MAX_DELETE)) { pressLatched(listOf(Keysyms.FORWARD_DEL)) }
             return true
         }
 
         override fun sendKeyEvent(event: KeyEvent): Boolean {
-            Keysyms.forKeyEvent(event)?.let { key(it, event.action == KeyEvent.ACTION_DOWN) }
+            val keysym = Keysyms.forKeyEvent(event) ?: return true
+            when {
+                keysym in Keysyms.MODIFIERS || Latch.ONCE !in latches.values ->
+                    key(keysym, event.action == KeyEvent.ACTION_DOWN)
+                event.action == KeyEvent.ACTION_DOWN -> pressLatched(listOf(keysym))
+            }
             return true
         }
     }

@@ -23,7 +23,10 @@ class AspectFrame @JvmOverloads constructor(
         val maxHeight = View.MeasureSpec.getSize(heightMeasureSpec)
         setMeasuredDimension(maxWidth, maxHeight)
         val child = getChildAt(0) ?: return
-        val (width, height) = fit(maxWidth, maxHeight)
+        val (width, height) = fit(
+            (maxWidth - paddingLeft - paddingRight).coerceAtLeast(1),
+            (maxHeight - paddingTop - paddingBottom).coerceAtLeast(1),
+        )
         child.measure(
             View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
             View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY),
@@ -32,8 +35,8 @@ class AspectFrame @JvmOverloads constructor(
 
     override fun onLayout(changed: Boolean, left: Int, top: Int, right: Int, bottom: Int) {
         val child = getChildAt(0) ?: return
-        val x = (width - child.measuredWidth) / 2
-        val y = (height - child.measuredHeight) / 2
+        val x = paddingLeft + (width - paddingLeft - paddingRight - child.measuredWidth) / 2
+        val y = paddingTop + (height - paddingTop - paddingBottom - child.measuredHeight) / 2
         child.layout(x, y, x + child.measuredWidth, y + child.measuredHeight)
     }
 
