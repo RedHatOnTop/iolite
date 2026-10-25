@@ -110,6 +110,9 @@ itself; it does so by re-creating the engine, so the mode indicator in the top b
 - Mirror shows one monitor: the primary one, or `iolite serve --monitor <connector>`.
 - When a screen made for the phone changes size, Mutter lays the monitors out afresh, so with
   Own screen the computer's monitors light up for a moment before iolite turns them off again.
+- Mutter lays the monitors out afresh when the phone's screen comes and goes, and iolite puts the
+  layout from before the session back afterwards. If the host is killed during a session, Mutter's
+  own layout stays, which can turn on a monitor that was off.
 - Encoding needs a VA-API AV1 encoder; there is no software fallback for the desktop yet.
 
 ## How it fits together

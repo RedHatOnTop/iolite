@@ -57,6 +57,9 @@ struct Host {
     pairing: Arc<Pairing>,
     active: Mutex<Option<(u64, quinn::Connection)>>,
     next_id: AtomicU64,
+    /// Held from recording to putting the monitors back, so a session that takes over starts
+    /// from the computer's own layout rather than one still holding the last client's screen.
+    desktop: tokio::sync::Mutex<()>,
 }
 
 pub async fn serve(opts: Options) -> Result<()> {
@@ -93,6 +96,7 @@ pub async fn serve(opts: Options) -> Result<()> {
         pairing,
         active: Mutex::new(None),
         next_id: AtomicU64::new(1),
+        desktop: tokio::sync::Mutex::new(()),
     });
     info!(
         "listening on {} (UDP); host fingerprint {fingerprint}",
@@ -225,6 +229,7 @@ impl Host {
         recv: &mut quinn::RecvStream,
         hello: &Hello,
     ) -> Result<String> {
+        let _turn = self.desktop.lock().await;
         let desktop = match &self.bus {
             Some(bus) => Some(self.open_desktop(bus, hello).await?),
             None => None,
@@ -232,6 +237,11 @@ impl Host {
         let result = self.stream(conn, send, recv, hello, desktop.as_ref()).await;
         if let Some(d) = &desktop {
             d.session.stop().await;
+            if let Some(placement) = &d.placement {
+                if let Err(e) = placement.restore(&d.monitors).await {
+                    warn!("putting the monitors back: {e:#}");
+                }
+            }
         }
         result
     }

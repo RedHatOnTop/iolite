@@ -1,9 +1,10 @@
 //! The monitor layout, through Mutter's DisplayConfig API, and where the screen Mutter adds for
 //! a client that asked for one of its own goes in it.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use futures_util::{Stream, StreamExt};
 use iolite_proto::DisplayMode;
 use zbus::zvariant::{OwnedValue, Value};
@@ -101,11 +102,14 @@ impl Monitors {
 }
 
 /// Where the client's screen goes: alone, or to the right of the computer's own.
+///
+/// Mutter lays the monitors out afresh whenever one comes or goes, which can turn on a monitor
+/// that was off (the Zenbook Duo's lower panel while its keyboard covers it), so the layout from
+/// before the session is what the client's screen goes next to, and what comes back after it.
 pub struct Placement {
     mode: DisplayMode,
     scale: f64,
-    /// Connectors there before the client's screen was asked for; the client's is the new one.
-    existing: HashSet<String>,
+    before: Layout,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -121,38 +125,70 @@ pub enum Arranged {
 impl Placement {
     /// Call before recording the virtual screen.
     pub async fn new(monitors: &Monitors, mode: DisplayMode, scale: f32) -> Result<Self> {
-        let layout = monitors.layout().await?;
         Ok(Self {
             mode,
             scale: f64::from(scale),
-            existing: layout.connectors.into_iter().map(|(c, _)| c).collect(),
+            before: monitors.layout().await?,
         })
     }
 
     pub async fn arrange(&self, monitors: &Monitors) -> Result<Arranged> {
-        let layout = monitors.layout().await?;
-        let Some(ours) = layout.find_new(&self.existing) else {
+        let now = monitors.layout().await?;
+        let Some(ours) = now.find_new(&self.before) else {
             return Ok(Arranged::Missing);
         };
-        let wanted = layout
-            .wanted(&ours, self.mode, self.scale)
+        let wanted = wanted(&self.before, &now, &ours, self.mode, self.scale)
             .context("the client's screen has no mode")?;
-        if same(&layout.logical, &wanted) {
+        if same(&now.logical, &wanted) {
             return Ok(Arranged::Settled);
         }
         tracing::info!("arranging the screens: {wanted:?}");
-        monitors
-            .proxy
-            .apply_monitors_config(
-                layout.serial,
-                METHOD_TEMPORARY,
-                layout.config(&wanted),
-                HashMap::new(),
-            )
-            .await
-            .context("applying the monitor layout")?;
+        apply(monitors, now.serial, config(&wanted, &[&self.before, &now])).await?;
         Ok(Arranged::Applied)
     }
+
+    /// Puts the layout from before back once the client's screen is gone.
+    pub async fn restore(&self, monitors: &Monitors) -> Result<()> {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(3);
+        let now = loop {
+            let now = monitors.layout().await?;
+            if !now.has_new_virtual(&self.before) {
+                break now;
+            }
+            if tokio::time::Instant::now() > deadline {
+                bail!("the client's screen is still there");
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        };
+        if same(&now.logical, &self.before.logical) {
+            return Ok(());
+        }
+        let gone = self
+            .before
+            .logical
+            .iter()
+            .flat_map(|l| &l.connectors)
+            .any(|c| !now.is_connected(c));
+        if gone {
+            tracing::info!("a monitor went away during the session; keeping Mutter's layout");
+            return Ok(());
+        }
+        tracing::info!("restoring the screens: {:?}", self.before.logical);
+        apply(
+            monitors,
+            now.serial,
+            config(&self.before.logical, &[&self.before]),
+        )
+        .await
+    }
+}
+
+async fn apply(monitors: &Monitors, serial: u32, config: Vec<LogicalMonitorConfig>) -> Result<()> {
+    monitors
+        .proxy
+        .apply_monitors_config(serial, METHOD_TEMPORARY, config, HashMap::new())
+        .await
+        .context("applying the monitor layout")
 }
 
 /// A monitor that is on, as far as a layout needs it.
@@ -238,15 +274,26 @@ impl Layout {
         self.outputs.iter().find(|o| o.connector == connector)
     }
 
-    fn find_new(&self, existing: &HashSet<String>) -> Option<String> {
+    fn is_connected(&self, connector: &str) -> bool {
+        self.connectors.iter().any(|(c, _)| c == connector)
+    }
+
+    /// The monitor connected now that was not `before`, preferring a virtual one.
+    fn find_new(&self, before: &Layout) -> Option<String> {
         let mut new = self
             .connectors
             .iter()
-            .filter(|(c, _)| !existing.contains(c));
+            .filter(|(c, _)| !before.is_connected(c));
         let first = new.clone().next();
         new.find(|(_, product)| product == VIRTUAL_PRODUCT)
             .or(first)
             .map(|(c, _)| c.clone())
+    }
+
+    fn has_new_virtual(&self, before: &Layout) -> bool {
+        self.connectors
+            .iter()
+            .any(|(c, product)| product == VIRTUAL_PRODUCT && !before.is_connected(c))
     }
 
     /// The area a logical monitor covers in layout coordinates.
@@ -266,68 +313,77 @@ impl Layout {
             (scaled(w), scaled(h))
         }
     }
+}
 
-    fn wanted(&self, ours: &str, mode: DisplayMode, scale: f64) -> Option<Vec<Logical>> {
-        let out = self.output(ours)?;
-        let target = if scale > 0.0 {
-            scale
-        } else {
-            out.preferred_scale
-        };
-        let scale = out
-            .scales
-            .iter()
-            .copied()
-            .min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()))
-            .unwrap_or(1.0);
-        let alone = Logical {
-            x: 0,
-            y: 0,
-            scale,
-            transform: 0,
-            primary: true,
-            connectors: vec![ours.to_owned()],
-        };
-        let mut others: Vec<Logical> = self
-            .logical
-            .iter()
-            .filter(|l| !l.connectors.iter().any(|c| c == ours))
-            .cloned()
-            .collect();
-        if mode != DisplayMode::Extend || others.is_empty() {
-            return Some(vec![alone]);
-        }
-        // Next to whichever monitor reaches furthest right, level with its top edge.
-        let (x, y) = others
-            .iter()
-            .map(|l| (l.x + self.extent(l).0, l.y))
-            .max_by_key(|&(right, top)| (right, -top))?;
-        if !others.iter().any(|l| l.primary) {
-            others[0].primary = true;
-        }
-        others.push(Logical {
-            x,
-            y,
-            primary: false,
-            ..alone
-        });
-        Some(others)
+/// The layout with the client's screen `ours` placed for `mode`, from the layout `before` it
+/// came and the one `now`.
+fn wanted(
+    before: &Layout,
+    now: &Layout,
+    ours: &str,
+    mode: DisplayMode,
+    scale: f64,
+) -> Option<Vec<Logical>> {
+    let out = now.output(ours)?;
+    let target = if scale > 0.0 {
+        scale
+    } else {
+        out.preferred_scale
+    };
+    let scale = out
+        .scales
+        .iter()
+        .copied()
+        .min_by(|a, b| (a - target).abs().total_cmp(&(b - target).abs()))
+        .unwrap_or(1.0);
+    let alone = Logical {
+        x: 0,
+        y: 0,
+        scale,
+        transform: 0,
+        primary: true,
+        connectors: vec![ours.to_owned()],
+    };
+    let mut others: Vec<Logical> = before
+        .logical
+        .iter()
+        .filter(|l| l.connectors.iter().all(|c| now.is_connected(c)))
+        .cloned()
+        .collect();
+    if mode != DisplayMode::Extend || others.is_empty() {
+        return Some(vec![alone]);
     }
+    // Next to whichever monitor reaches furthest right, level with its top edge.
+    let (x, y) = others
+        .iter()
+        .map(|l| (l.x + before.extent(l).0, l.y))
+        .max_by_key(|&(right, top)| (right, -top))?;
+    if !others.iter().any(|l| l.primary) {
+        others[0].primary = true;
+    }
+    others.push(Logical {
+        x,
+        y,
+        primary: false,
+        ..alone
+    });
+    Some(others)
+}
 
-    fn config(&self, logical: &[Logical]) -> Vec<LogicalMonitorConfig> {
-        logical
-            .iter()
-            .map(|l| {
-                let monitors = l
-                    .connectors
-                    .iter()
-                    .filter_map(|c| self.output(c))
-                    .map(|o| (o.connector.clone(), o.mode.clone(), HashMap::new()))
-                    .collect();
-                (l.x, l.y, l.scale, l.transform, l.primary, monitors)
-            })
-            .collect()
-    }
+/// Each monitor keeps the mode it has in the first of `layouts` it is on in.
+fn config(logical: &[Logical], layouts: &[&Layout]) -> Vec<LogicalMonitorConfig> {
+    logical
+        .iter()
+        .map(|l| {
+            let monitors = l
+                .connectors
+                .iter()
+                .filter_map(|c| layouts.iter().find_map(|layout| layout.output(c)))
+                .map(|o| (o.connector.clone(), o.mode.clone(), HashMap::new()))
+                .collect();
+            (l.x, l.y, l.scale, l.transform, l.primary, monitors)
+        })
+        .collect()
 }
 
 fn flag(props: &HashMap<String, OwnedValue>, key: &str) -> bool {
@@ -381,81 +437,120 @@ mod tests {
         }
     }
 
-    /// The Zenbook Duo with both panels on at 125 %, stacked, and a phone screen Mutter put
-    /// to the right at 100 %.
-    fn duo() -> Layout {
+    const PANEL: &str = "0x41a0";
+
+    /// The Zenbook Duo with its keyboard on: the upper panel at 125 %, the lower one off.
+    fn docked() -> Layout {
         Layout {
-            serial: 7,
+            serial: 1,
             physical: false,
             connectors: vec![
-                ("eDP-1".into(), "0x4170".into()),
-                ("eDP-2".into(), "0x4170".into()),
-                ("Meta-1".into(), VIRTUAL_PRODUCT.into()),
+                ("eDP-1".into(), PANEL.into()),
+                ("eDP-2".into(), PANEL.into()),
+            ],
+            outputs: vec![output("eDP-1", 1920, 1200, &[1.0, 1.25, 1.5])],
+            logical: vec![logical(0, 0, 1.25, true, "eDP-1")],
+        }
+    }
+
+    /// What Mutter made of it once the phone's screen came: both panels on, side by side, and
+    /// the phone's screen to their right.
+    fn with_phone() -> Layout {
+        Layout {
+            serial: 2,
+            physical: false,
+            connectors: vec![
+                ("eDP-1".into(), PANEL.into()),
+                ("eDP-2".into(), PANEL.into()),
+                ("Meta-0".into(), VIRTUAL_PRODUCT.into()),
             ],
             outputs: vec![
                 output("eDP-1", 1920, 1200, &[1.0, 1.25, 1.5]),
                 output("eDP-2", 1920, 1200, &[1.0, 1.25, 1.5]),
-                output("Meta-1", 2184, 1968, &[1.0, 1.33, 1.5, 2.0, 2.67, 3.0]),
+                output("Meta-0", 2184, 1968, &[1.0, 1.33, 1.5, 2.0, 2.67, 3.0]),
             ],
             logical: vec![
                 logical(0, 0, 1.25, true, "eDP-1"),
-                logical(0, 960, 1.25, false, "eDP-2"),
-                logical(1536, 0, 1.0, false, "Meta-1"),
+                logical(1536, 0, 1.25, false, "eDP-2"),
+                logical(3072, 0, 1.0, false, "Meta-0"),
             ],
         }
     }
 
     #[test]
     fn finds_the_screen_added_for_the_client() {
-        let layout = duo();
-        let existing = HashSet::from(["eDP-1".to_owned(), "eDP-2".to_owned()]);
-        assert_eq!(layout.find_new(&existing).as_deref(), Some("Meta-1"));
-        let all = HashSet::from(["eDP-1".into(), "eDP-2".into(), "Meta-1".into()]);
-        assert_eq!(layout.find_new(&all), None);
+        let (before, now) = (docked(), with_phone());
+        assert_eq!(now.find_new(&before).as_deref(), Some("Meta-0"));
+        assert!(now.has_new_virtual(&before));
+        assert_eq!(now.find_new(&now), None);
+        assert!(!before.has_new_virtual(&before));
     }
 
     #[test]
-    fn fit_leaves_only_the_client_screen_at_the_nearest_scale() {
-        let layout = duo();
-        let wanted = layout.wanted("Meta-1", DisplayMode::Fit, 1.97).unwrap();
-        assert!(same(&wanted, &[logical(0, 0, 2.0, true, "Meta-1")]));
-        let config = layout.config(&wanted);
+    fn own_screen_leaves_only_the_client_screen_at_the_nearest_scale() {
+        let (before, now) = (docked(), with_phone());
+        let wanted = wanted(&before, &now, "Meta-0", DisplayMode::Fit, 1.97).unwrap();
+        assert!(same(&wanted, &[logical(0, 0, 2.0, true, "Meta-0")]));
+        let config = config(&wanted, &[&before, &now]);
         assert_eq!(config.len(), 1);
-        assert_eq!(config[0].5[0].0, "Meta-1");
+        assert_eq!(config[0].5[0].0, "Meta-0");
         assert_eq!(config[0].5[0].1, "2184x1968@60");
-        assert!(!same(&layout.logical, &wanted));
+        assert!(!same(&now.logical, &wanted));
     }
 
     #[test]
-    fn extend_goes_right_of_the_widest_reach() {
-        let layout = duo();
-        let wanted = layout.wanted("Meta-1", DisplayMode::Extend, 2.0).unwrap();
+    fn extend_keeps_the_monitors_that_were_on() {
+        let (before, now) = (docked(), with_phone());
+        let wanted = wanted(&before, &now, "Meta-0", DisplayMode::Extend, 2.0).unwrap();
         assert!(same(
             &wanted,
             &[
                 logical(0, 0, 1.25, true, "eDP-1"),
-                logical(0, 960, 1.25, false, "eDP-2"),
-                logical(1536, 0, 2.0, false, "Meta-1"),
+                logical(1536, 0, 2.0, false, "Meta-0"),
             ]
         ));
-        let mut wide = duo();
-        wide.outputs[1] = output("eDP-2", 2880, 1800, &[1.0, 1.25]);
-        let wanted = wide.wanted("Meta-1", DisplayMode::Extend, 0.0).unwrap();
-        let ours = wanted.iter().find(|l| l.connectors == ["Meta-1"]).unwrap();
+    }
+
+    #[test]
+    fn extend_goes_right_of_the_widest_reach() {
+        let mut before = docked();
+        before
+            .outputs
+            .push(output("eDP-2", 2880, 1800, &[1.0, 1.25]));
+        before.logical.push(logical(0, 960, 1.25, false, "eDP-2"));
+        let wanted = wanted(&before, &with_phone(), "Meta-0", DisplayMode::Extend, 0.0).unwrap();
+        let ours = wanted.iter().find(|l| l.connectors == ["Meta-0"]).unwrap();
         assert_eq!((ours.x, ours.y, ours.scale), (2304, 960, 1.0));
     }
 
     #[test]
     fn a_settled_layout_is_left_alone() {
-        let mut layout = duo();
-        layout.logical = vec![logical(0, 0, 2.0, true, "Meta-1")];
-        let wanted = layout.wanted("Meta-1", DisplayMode::Fit, 2.0).unwrap();
-        assert!(same(&layout.logical, &wanted));
+        let mut now = with_phone();
+        now.logical = vec![logical(0, 0, 2.0, true, "Meta-0")];
+        let wanted = wanted(&docked(), &now, "Meta-0", DisplayMode::Fit, 2.0).unwrap();
+        assert!(same(&now.logical, &wanted));
+    }
+
+    #[test]
+    fn the_layout_from_before_comes_back_with_its_modes() {
+        let before = docked();
+        let config = config(&before.logical, &[&before]);
+        assert_eq!(
+            config,
+            vec![(
+                0,
+                0,
+                1.25,
+                0,
+                true,
+                vec![("eDP-1".into(), "1920x1200@60".into(), HashMap::new())]
+            )]
+        );
     }
 
     #[test]
     fn rotated_and_physical_extents() {
-        let mut layout = duo();
+        let mut layout = with_phone();
         layout.logical[0].transform = 1;
         assert_eq!(layout.extent(&layout.logical[0]), (960, 1536));
         layout.physical = true;
