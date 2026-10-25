@@ -13,7 +13,7 @@ import android.widget.Switch
 import android.widget.TextView
 import kotlin.math.min
 
-/** Edits a saved computer: its name, address, input mode, sound and pairing. Nothing is saved until Save. */
+/** Edits a saved computer: its name, address, input mode, screen, sound and pairing. Nothing is saved until Save. */
 class ComputerDialog(
     private val activity: Activity,
     private val prefs: Prefs,
@@ -25,6 +25,7 @@ class ComputerDialog(
     private val handler = Handler(Looper.getMainLooper())
     private val disarmDelete = Runnable { armDelete(false) }
     private var inputMode = computer.inputMode
+    private var display = computer.display
     private var pin = computer.pin
     private var deleteArmed = false
 
@@ -33,6 +34,12 @@ class ComputerDialog(
     private val portInput: EditText = view.findViewById(R.id.portInput)
     private val touch: TextView = view.findViewById(R.id.modeTouch)
     private val trackpad: TextView = view.findViewById(R.id.modeTrackpad)
+    private val screens = mapOf(
+        DisplayMode.OWN to view.findViewById<TextView>(R.id.screenOwn),
+        DisplayMode.EXTEND to view.findViewById<TextView>(R.id.screenExtend),
+        DisplayMode.MIRROR to view.findViewById<TextView>(R.id.screenMirror),
+    )
+    private val screenAbout: TextView = view.findViewById(R.id.screenAbout)
     private val sound: Switch = view.findViewById(R.id.soundSwitch)
     private val pairingText: TextView = view.findViewById(R.id.pairingText)
     private val forgetButton: Button = view.findViewById(R.id.forgetButton)
@@ -48,6 +55,7 @@ class ComputerDialog(
         sound.isChecked = computer.audio
         touch.setOnClickListener { setInputMode(InputMode.TOUCH) }
         trackpad.setOnClickListener { setInputMode(InputMode.TRACKPAD) }
+        screens.forEach { (mode, segment) -> segment.setOnClickListener { setDisplay(mode) } }
         forgetButton.setOnClickListener {
             pin = null
             renderPairing(forgotten = true)
@@ -56,6 +64,7 @@ class ComputerDialog(
         view.findViewById<View>(R.id.cancelButton).setOnClickListener { dialog.dismiss() }
         view.findViewById<View>(R.id.saveButton).setOnClickListener { save() }
         setInputMode(inputMode)
+        setDisplay(display)
         renderPairing(forgotten = false)
 
         dialog.requestWindowFeature(Window.FEATURE_NO_TITLE)
@@ -72,6 +81,18 @@ class ComputerDialog(
         inputMode = mode
         styleSegment(touch, mode == InputMode.TOUCH)
         styleSegment(trackpad, mode == InputMode.TRACKPAD)
+    }
+
+    private fun setDisplay(mode: DisplayMode) {
+        display = mode
+        screens.forEach { (m, segment) -> styleSegment(segment, m == mode) }
+        screenAbout.setText(
+            when (mode) {
+                DisplayMode.OWN -> R.string.screen_own_about
+                DisplayMode.EXTEND -> R.string.screen_extend_about
+                DisplayMode.MIRROR -> R.string.screen_mirror_about
+            },
+        )
     }
 
     private fun renderPairing(forgotten: Boolean) {
@@ -108,6 +129,7 @@ class ComputerDialog(
                 pin = pin,
                 inputMode = inputMode,
                 audio = sound.isChecked,
+                display = display,
             )
         }
         dialog.dismiss()

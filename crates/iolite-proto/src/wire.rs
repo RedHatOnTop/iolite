@@ -28,6 +28,10 @@ impl StreamKind {
 }
 
 pub const FLAG_KEYFRAME: u8 = 1;
+/// Marks the first video packet of a new frame size. Its data starts with the width and height
+/// as little-endian u32s, ahead of the frame itself, so the size cannot arrive out of order
+/// with the frames.
+pub const FLAG_SIZE: u8 = 2;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PacketHeader {
@@ -98,6 +102,14 @@ pub async fn write_message<T: Serialize, W: AsyncWrite + Unpin>(
 pub async fn read_message<T: DeserializeOwned, R: AsyncRead + Unpin>(
     r: &mut R,
 ) -> io::Result<Option<T>> {
+    match read_message_body(r).await? {
+        Some(body) => decode_message(&body).map(Some),
+        None => Ok(None),
+    }
+}
+
+/// Reads one message without decoding it, or `None` if the stream ended between messages.
+pub async fn read_message_body<R: AsyncRead + Unpin>(r: &mut R) -> io::Result<Option<Vec<u8>>> {
     let mut len = [0u8; 4];
     if !read_exact_or_eof(r, &mut len).await? {
         return Ok(None);
@@ -108,7 +120,11 @@ pub async fn read_message<T: DeserializeOwned, R: AsyncRead + Unpin>(
     }
     let mut body = vec![0u8; len];
     r.read_exact(&mut body).await?;
-    postcard::from_bytes(&body).map(Some).map_err(invalid)
+    Ok(Some(body))
+}
+
+pub fn decode_message<T: DeserializeOwned>(body: &[u8]) -> io::Result<T> {
+    postcard::from_bytes(body).map_err(invalid)
 }
 
 pub async fn write_packet<W: AsyncWrite + Unpin>(
@@ -124,6 +140,42 @@ pub async fn write_packet<W: AsyncWrite + Unpin>(
     };
     w.write_all(&header.encode()).await?;
     w.write_all(data).await
+}
+
+/// Writes a video packet, announcing `size` in front of it if given.
+pub async fn write_video_packet<W: AsyncWrite + Unpin>(
+    w: &mut W,
+    flags: u8,
+    pts_us: u64,
+    size: Option<(u32, u32)>,
+    data: &[u8],
+) -> io::Result<()> {
+    let Some((width, height)) = size else {
+        return write_packet(w, flags, pts_us, data).await;
+    };
+    let header = PacketHeader {
+        flags: flags | FLAG_SIZE,
+        pts_us,
+        len: (data.len() + 8) as u32,
+    };
+    w.write_all(&header.encode()).await?;
+    w.write_all(&width.to_le_bytes()).await?;
+    w.write_all(&height.to_le_bytes()).await?;
+    w.write_all(data).await
+}
+
+/// Removes the size a [`FLAG_SIZE`] packet starts with and returns it.
+pub fn take_size(header: &PacketHeader, data: &mut Vec<u8>) -> io::Result<Option<(u32, u32)>> {
+    if header.flags & FLAG_SIZE == 0 {
+        return Ok(None);
+    }
+    if data.len() < 8 {
+        return Err(invalid("size packet too short"));
+    }
+    let width = u32::from_le_bytes(data[0..4].try_into().unwrap());
+    let height = u32::from_le_bytes(data[4..8].try_into().unwrap());
+    data.drain(..8);
+    Ok(Some((width, height)))
 }
 
 /// Reads one packet, or `None` if the stream ended between packets.
@@ -177,5 +229,25 @@ mod tests {
         assert_eq!(header.pts_us, 42);
         assert_eq!(data, b"obu");
         assert!(read_packet(&mut b).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn size_travels_with_its_frame() {
+        let (mut a, mut b) = tokio::io::duplex(1 << 16);
+        write_video_packet(&mut a, FLAG_KEYFRAME, 7, Some((2184, 1968)), b"key")
+            .await
+            .unwrap();
+        write_video_packet(&mut a, 0, 8, None, b"delta")
+            .await
+            .unwrap();
+        drop(a);
+
+        let (header, mut data) = read_packet(&mut b).await.unwrap().unwrap();
+        assert_eq!(header.flags, FLAG_KEYFRAME | FLAG_SIZE);
+        assert_eq!(take_size(&header, &mut data).unwrap(), Some((2184, 1968)));
+        assert_eq!(data, b"key");
+        let (header, mut data) = read_packet(&mut b).await.unwrap().unwrap();
+        assert_eq!(take_size(&header, &mut data).unwrap(), None);
+        assert_eq!(data, b"delta");
     }
 }

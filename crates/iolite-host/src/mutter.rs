@@ -14,7 +14,7 @@ use anyhow::{Context, Result};
 use futures_util::StreamExt;
 use iolite_proto::{keysym_for_char, Input, MouseButton, TouchPhase};
 use tokio::sync::Notify;
-use zbus::zvariant::{OwnedFd, OwnedObjectPath, OwnedValue, Value};
+use zbus::zvariant::{OwnedFd, OwnedObjectPath, Value};
 
 use crate::hangul;
 use crate::ibus::{Hangul, Toggle, XK_HANGUL};
@@ -79,6 +79,9 @@ trait ScreenCastSession {
         connector: &str,
         properties: HashMap<&str, Value<'_>>,
     ) -> zbus::Result<OwnedObjectPath>;
+    /// Adds a monitor whose size is whatever the stream consumer asks for.
+    fn record_virtual(&self, properties: HashMap<&str, Value<'_>>)
+        -> zbus::Result<OwnedObjectPath>;
 }
 
 #[zbus::proxy(
@@ -89,43 +92,6 @@ trait ScreenCastSession {
 trait ScreenCastStream {
     #[zbus(signal, name = "PipeWireStreamAdded")]
     fn pipewire_stream_added(&self, node_id: u32) -> zbus::Result<()>;
-}
-
-type MonitorSpec = (String, String, String, String);
-type Mode = (
-    String,
-    i32,
-    i32,
-    f64,
-    f64,
-    Vec<f64>,
-    HashMap<String, OwnedValue>,
-);
-type Monitor = (MonitorSpec, Vec<Mode>, HashMap<String, OwnedValue>);
-type LogicalMonitor = (
-    i32,
-    i32,
-    f64,
-    u32,
-    bool,
-    Vec<MonitorSpec>,
-    HashMap<String, OwnedValue>,
-);
-type CurrentState = (
-    u32,
-    Vec<Monitor>,
-    Vec<LogicalMonitor>,
-    HashMap<String, OwnedValue>,
-);
-
-#[zbus::proxy(
-    interface = "org.gnome.Mutter.DisplayConfig",
-    default_service = "org.gnome.Mutter.DisplayConfig",
-    default_path = "/org/gnome/Mutter/DisplayConfig",
-    gen_blocking = false
-)]
-trait DisplayConfig {
-    fn get_current_state(&self) -> zbus::Result<CurrentState>;
 }
 
 const CURSOR_EMBEDDED: u32 = 1;
@@ -209,15 +175,17 @@ pub struct DesktopSession {
     /// Object path of the screen cast stream; absolute input positions are relative to it.
     stream: String,
     pub node_id: u32,
-    pub connector: String,
+}
+
+/// What a session records.
+pub enum Capture {
+    Monitor(String),
+    /// A new monitor, as large as the stream consumer asks for.
+    Virtual,
 }
 
 impl DesktopSession {
-    pub async fn start(bus: &zbus::Connection, monitor: Option<&str>) -> Result<Self> {
-        let connector = match monitor {
-            Some(m) => m.to_owned(),
-            None => primary_connector(bus).await?,
-        };
+    pub async fn start(bus: &zbus::Connection, capture: &Capture) -> Result<Self> {
         let rd_path = RemoteDesktopProxy::new(bus)
             .await?
             .create_session()
@@ -240,13 +208,17 @@ impl DesktopSession {
             .path(sc_path)?
             .build()
             .await?;
-        let stream_path = sc
-            .record_monitor(
-                &connector,
-                HashMap::from([("cursor-mode", Value::from(CURSOR_EMBEDDED))]),
-            )
-            .await
-            .with_context(|| format!("recording monitor {connector}"))?;
+        let properties = HashMap::from([("cursor-mode", Value::from(CURSOR_EMBEDDED))]);
+        let stream_path = match capture {
+            Capture::Monitor(connector) => sc
+                .record_monitor(connector, properties)
+                .await
+                .with_context(|| format!("recording monitor {connector}"))?,
+            Capture::Virtual => sc
+                .record_virtual(properties)
+                .await
+                .context("recording a virtual monitor")?,
+        };
         let stream = ScreenCastStreamProxy::builder(bus)
             .path(stream_path.clone())?
             .build()
@@ -277,7 +249,6 @@ impl DesktopSession {
             composer: Default::default(),
             stream: stream_path.as_str().to_owned(),
             node_id,
-            connector,
         })
     }
 
@@ -567,19 +538,4 @@ async fn serve_clipboard(rd: RemoteDesktopSessionProxy<'static>, clipboard: Arc<
         clipboard.transfers.fetch_add(1, Ordering::AcqRel);
         clipboard.served.notify_waiters();
     }
-}
-
-async fn primary_connector(bus: &zbus::Connection) -> Result<String> {
-    let (_, _, logical, _) = DisplayConfigProxy::new(bus)
-        .await?
-        .get_current_state()
-        .await
-        .context("reading the monitor layout")?;
-    logical
-        .iter()
-        .find(|l| l.4)
-        .or_else(|| logical.first())
-        .and_then(|l| l.5.first())
-        .map(|spec| spec.0.clone())
-        .context("no monitor is on")
 }

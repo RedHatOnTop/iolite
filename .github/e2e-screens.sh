@@ -54,6 +54,8 @@ sleep 1.5
 shot keyboard
 back
 tap content-desc "Hide keys"
+# The host remakes its screen at the new size.
+sleep 2
 shot keys-hidden
 tap content-desc "Show keys"
 back

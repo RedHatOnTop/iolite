@@ -23,6 +23,13 @@
     <string name="touch">Touch</string>
     <string name="trackpad">Trackpad</string>
     <string name="sound">Play the computer\'s sound</string>
+    <string name="screen">Screen</string>
+    <string name="screen_own">Own screen</string>
+    <string name="screen_extend">Extend</string>
+    <string name="screen_mirror">Mirror</string>
+    <string name="screen_own_about">A desktop sized for this device. The computer\'s own screens stay off until you disconnect.</string>
+    <string name="screen_extend_about">A second screen for this device, beside the computer\'s own.</string>
+    <string name="screen_mirror_about">The computer\'s main screen as it is.</string>
     <string name="pairing">Pairing</string>
     <string name="paired_with">Paired · %1$s</string>
     <string name="pairing_none">Not paired yet; the computer asks the first time.</string>
@@ -41,6 +48,9 @@
     <string name="input_touch">Touch input</string>
     <string name="input_trackpad">Trackpad input</string>
     <string name="disconnect">Disconnect</string>
+    <string name="menu_screen_own">Screen for this device</string>
+    <string name="menu_screen_extend">Extend the desktop</string>
+    <string name="menu_screen_mirror">Mirror the computer</string>
     <string name="tab_keys">Keys</string>
     <string name="tab_function">F1–F12</string>
     <string name="tab_shortcuts">Shortcuts</string>

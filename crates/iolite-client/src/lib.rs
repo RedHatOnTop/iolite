@@ -52,6 +52,11 @@ pub enum Event {
         host: Fingerprint,
         welcome: Welcome,
     },
+    /// Video from the next packet on has this size; the next packet is a keyframe.
+    VideoSize {
+        width: u32,
+        height: u32,
+    },
     Video(Packet),
     Audio(Packet),
     Closed(String),
@@ -178,7 +183,18 @@ async fn accept_media(conn: quinn::Connection, events: mpsc::Sender<Event>) -> R
 
 async fn read_media(recv: &mut quinn::RecvStream, events: &mpsc::Sender<Event>) -> Result<()> {
     let kind = wire::read_stream_kind(recv).await?;
-    while let Some((header, data)) = wire::read_packet(recv).await? {
+    while let Some((header, mut data)) = wire::read_packet(recv).await? {
+        if kind == StreamKind::Video {
+            if let Some((width, height)) = wire::take_size(&header, &mut data)? {
+                if events
+                    .send(Event::VideoSize { width, height })
+                    .await
+                    .is_err()
+                {
+                    bail!("event receiver dropped");
+                }
+            }
+        }
         let packet = Packet {
             data,
             pts_us: header.pts_us,

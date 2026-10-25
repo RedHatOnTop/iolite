@@ -1,5 +1,6 @@
 mod config;
 mod control;
+mod display;
 mod hangul;
 mod ibus;
 mod media;
@@ -14,7 +15,7 @@ use std::path::PathBuf;
 use anyhow::{bail, Result};
 use clap::{Args, Parser, Subcommand};
 use iolite_proto::identity::Identity;
-use iolite_proto::DEFAULT_PORT;
+use iolite_proto::{DisplayMode, DEFAULT_PORT};
 use tracing_subscriber::EnvFilter;
 
 use crate::config::Clients;
@@ -107,6 +108,41 @@ struct ProbeArgs {
     /// Tap with one finger at this normalized position.
     #[arg(long, value_parser = parse_point)]
     tap: Option<(f32, f32)>,
+    /// What to show: the computer's screen (mirror), a screen of the probe's size that is the
+    /// only one on (fit), or one next to the computer's own (extend).
+    #[arg(long, value_parser = parse_display, default_value = "mirror")]
+    display: DisplayMode,
+    /// Display size the probe reports, e.g. 1080x2400.
+    #[arg(long, value_parser = parse_size, default_value = "1920x1200")]
+    size: (u32, u32),
+    /// GNOME scale for a screen made for the probe; 0 lets the host choose.
+    #[arg(long, default_value_t = 0.0)]
+    scale: f32,
+    /// Report a new display size this many seconds after the welcome, e.g. 2184x1968@3.
+    /// Repeatable.
+    #[arg(long, value_parser = parse_resize)]
+    resize: Vec<((u32, u32), f32)>,
+}
+
+fn parse_display(s: &str) -> Result<DisplayMode, String> {
+    match s {
+        "mirror" => Ok(DisplayMode::Mirror),
+        "fit" => Ok(DisplayMode::Fit),
+        "extend" => Ok(DisplayMode::Extend),
+        _ => Err("expected mirror, fit or extend".into()),
+    }
+}
+
+fn parse_size(s: &str) -> Result<(u32, u32), String> {
+    let (w, h) = s.split_once('x').ok_or("expected WIDTHxHEIGHT")?;
+    let parse = |v: &str| v.trim().parse::<u32>().map_err(|e| e.to_string());
+    Ok((parse(w)?, parse(h)?))
+}
+
+fn parse_resize(s: &str) -> Result<((u32, u32), f32), String> {
+    let (size, at) = s.split_once('@').ok_or("expected WIDTHxHEIGHT@SECONDS")?;
+    let at = at.trim().parse::<f32>().map_err(|e| e.to_string())?;
+    Ok((parse_size(size)?, at))
 }
 
 fn parse_point(s: &str) -> Result<(f32, f32), String> {
@@ -152,6 +188,10 @@ async fn main() -> Result<()> {
                 text: a.text,
                 ime: a.ime,
                 tap: a.tap,
+                display: a.display,
+                size: a.size,
+                scale: a.scale,
+                resize: a.resize,
             })
             .await
         }

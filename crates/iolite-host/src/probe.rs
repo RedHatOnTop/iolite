@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use iolite_client::{Config, Event};
 use iolite_proto::identity::{Fingerprint, Identity};
 use iolite_proto::{
-    ClientMsg, Hello, Input, MouseButton, TouchPhase, DEFAULT_PORT, PROTOCOL_VERSION,
+    ClientMsg, DisplayMode, Hello, Input, MouseButton, TouchPhase, DEFAULT_PORT, PROTOCOL_VERSION,
 };
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
@@ -24,6 +24,10 @@ pub struct ProbeOptions {
     pub text: Option<String>,
     pub ime: Option<String>,
     pub tap: Option<(f32, f32)>,
+    pub display: DisplayMode,
+    pub size: (u32, u32),
+    pub scale: f32,
+    pub resize: Vec<((u32, u32), f32)>,
 }
 
 const XK_BACKSPACE: u32 = 0xff08;
@@ -39,9 +43,11 @@ pub async fn probe(opts: ProbeOptions) -> Result<()> {
     let hello = Hello {
         version: PROTOCOL_VERSION,
         device_name: format!("iolite probe on {}", config::host_name()),
-        display_width: 1920,
-        display_height: 1200,
+        display_width: opts.size.0,
+        display_height: opts.size.1,
         audio: true,
+        display: opts.display,
+        scale: opts.scale,
     };
     let (commands, commands_rx) = mpsc::unbounded_channel();
     let (events_tx, mut events) = mpsc::channel(64);
@@ -102,7 +108,18 @@ pub async fn probe(opts: ProbeOptions) -> Result<()> {
                         tokio::time::sleep(Duration::from_secs(1)).await;
                         let _ = tx.send(ClientMsg::RequestKeyframe);
                     });
+                    for &((width, height), at) in &opts.resize {
+                        let tx = tx.clone();
+                        tokio::spawn(async move {
+                            tokio::time::sleep(Duration::from_secs_f32(at)).await;
+                            println!("asking for {width}x{height}");
+                            let _ = tx.send(ClientMsg::Resize { width, height });
+                        });
+                    }
                 }
+            }
+            Event::VideoSize { width, height } => {
+                println!("video size {width}x{height} at +{:.2} s", stats.elapsed());
             }
             Event::Video(packet) => {
                 stats.video(packet.data.len(), packet.keyframe);
@@ -199,9 +216,15 @@ struct Stats {
     keyframes: u64,
     bytes: u64,
     audio: u64,
+    /// Frames in each second after the welcome, which shows stalls.
+    per_second: Vec<u32>,
 }
 
 impl Stats {
+    fn elapsed(&self) -> f64 {
+        self.welcomed.map_or(0.0, |t| t.elapsed().as_secs_f64())
+    }
+
     fn video(&mut self, len: usize, keyframe: bool) {
         if self.first_frame.is_none() {
             self.first_frame = self.welcomed.map(|t| t.elapsed());
@@ -209,6 +232,11 @@ impl Stats {
         self.frames += 1;
         self.keyframes += u64::from(keyframe);
         self.bytes += len as u64;
+        let second = self.elapsed() as usize;
+        if self.per_second.len() <= second {
+            self.per_second.resize(second + 1, 0);
+        }
+        self.per_second[second] += 1;
     }
 
     fn report(&self) {
@@ -226,5 +254,7 @@ impl Stats {
             self.first_frame.map(|d| d.as_millis()).unwrap_or(0),
             self.audio
         );
+        let per_second: Vec<String> = self.per_second.iter().map(u32::to_string).collect();
+        println!("frames per second: {}", per_second.join(" "));
     }
 }

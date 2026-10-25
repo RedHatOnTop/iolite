@@ -10,6 +10,13 @@ data class Endpoint(val host: String, val port: Int) {
         get() = "$host:$port"
 }
 
+/** What the stream shows; [OWN] and [EXTEND] get a screen the computer makes for this device. */
+enum class DisplayMode(val wire: Int) {
+    OWN(Native.DISPLAY_OWN),
+    EXTEND(Native.DISPLAY_EXTEND),
+    MIRROR(Native.DISPLAY_MIRROR),
+}
+
 /** A saved connection with its pairing and its own settings. */
 data class Computer(
     val id: String,
@@ -22,6 +29,7 @@ data class Computer(
     val lastUsed: Long = 0L,
     val inputMode: InputMode = InputMode.TOUCH,
     val audio: Boolean = true,
+    val display: DisplayMode = DisplayMode.OWN,
 ) {
     val title: String
         get() = name.ifEmpty { hostName.ifEmpty { endpoint.host } }
@@ -109,6 +117,8 @@ class Prefs(context: Context) {
                 lastUsed = o.optLong("lastUsed"),
                 inputMode = if (o.optString("inputMode") == "trackpad") InputMode.TRACKPAD else InputMode.TOUCH,
                 audio = o.optBoolean("audio", true),
+                display = DisplayMode.entries.firstOrNull { it.name.equals(o.optString("display"), ignoreCase = true) }
+                    ?: DisplayMode.OWN,
             )
         }
     }
@@ -125,6 +135,7 @@ class Prefs(context: Context) {
                 .put("lastUsed", c.lastUsed)
                 .put("inputMode", c.inputMode.name.lowercase())
                 .put("audio", c.audio)
+                .put("display", c.display.name.lowercase())
             c.pin?.let { o.put("pin", it) }
             array.put(o)
         }

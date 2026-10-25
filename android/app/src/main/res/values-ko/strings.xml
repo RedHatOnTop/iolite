@@ -23,6 +23,13 @@
     <string name="touch">터치</string>
     <string name="trackpad">트랙패드</string>
     <string name="sound">컴퓨터 소리 재생</string>
+    <string name="screen">화면</string>
+    <string name="screen_own">전용 화면</string>
+    <string name="screen_extend">확장</string>
+    <string name="screen_mirror">미러링</string>
+    <string name="screen_own_about">이 기기 크기에 맞춘 화면을 따로 씁니다. 연결을 끊을 때까지 컴퓨터 화면은 꺼집니다.</string>
+    <string name="screen_extend_about">컴퓨터 화면 옆에 이 기기용 두 번째 화면을 붙입니다.</string>
+    <string name="screen_mirror_about">컴퓨터의 주 화면을 그대로 보여 줍니다.</string>
     <string name="pairing">페어링</string>
     <string name="paired_with">페어링됨 · %1$s</string>
     <string name="pairing_none">아직 페어링하지 않았습니다. 처음 연결할 때 컴퓨터가 묻습니다.</string>
@@ -41,6 +48,9 @@
     <string name="input_touch">터치 입력</string>
     <string name="input_trackpad">트랙패드 입력</string>
     <string name="disconnect">연결 끊기</string>
+    <string name="menu_screen_own">이 기기 전용 화면</string>
+    <string name="menu_screen_extend">화면 확장</string>
+    <string name="menu_screen_mirror">컴퓨터 화면 미러링</string>
     <string name="tab_keys">키</string>
     <string name="tab_function">F1–F12</string>
     <string name="tab_shortcuts">단축키</string>

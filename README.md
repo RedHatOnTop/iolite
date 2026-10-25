@@ -82,6 +82,14 @@ Activities overview, switches between touch and trackpad input, disconnects and 
 a three-finger tap also opens or closes the keyboard. The video shrinks to stay above the bar and
 the keyboard.
 
+Each computer also has a screen setting. **Own screen**, the default, asks the computer for a
+desktop the size of the phone's screen, the way a Windows remote desktop session gets its own:
+the computer's monitors stay off while the phone is connected and come back when it disconnects,
+and the screen follows the phone when it is turned or unfolded or the key bar is hidden.
+**Extend** adds the phone as a second monitor beside the computer's own. **Mirror** shows the
+computer's primary monitor as it is. The `⋯` menu while streaming switches between them, which
+reconnects.
+
 In touch mode the finger is the pointer: tap to click where you tap, drag to drag, hold to
 right-click. In trackpad mode the phone is a touchpad: slide to move the pointer, tap to click,
 tap and drag to drag. In both, two fingers scroll, and a two-finger tap right-clicks.
@@ -99,7 +107,9 @@ itself; it does so by re-creating the engine, so the mode indicator in the top b
   (accented letters, emoji, Korean without ibus-hangul) is put on the clipboard and pasted with
   Shift+Insert, which replaces the clipboard. That works in GTK, browser and Electron apps;
   GNOME Terminal and Ptyxis paste the primary selection on Shift+Insert instead.
-- One monitor per session: the primary one, or `iolite serve --monitor <connector>`.
+- Mirror shows one monitor: the primary one, or `iolite serve --monitor <connector>`.
+- When a screen made for the phone changes size, Mutter lays the monitors out afresh, so with
+  Own screen the computer's monitors light up for a moment before iolite turns them off again.
 - Encoding needs a VA-API AV1 encoder; there is no software fallback for the desktop yet.
 
 ## How it fits together
@@ -115,11 +125,13 @@ android/               the Android app
 A session is one QUIC connection. The phone opens a control stream and says hello; the host
 either asks for pairing or starts recording and answers with the frame size. Video (one AV1
 temporal unit per packet) and audio (one Opus packet per packet) arrive on separate streams;
-input goes back on the control stream. One device streams at a time; a new connection takes
+input goes back on the control stream. When the frame size changes, the first video packet of
+the new size, a keyframe, carries it. One device streams at a time; a new connection takes
 over.
 
 `iolite probe <host>` is a headless client for testing: it pairs, streams for a few seconds,
-can click and type, and writes the received AV1 to a file.
+can click and type, asks for any screen mode and size (`--display fit --size 1080x2400
+--resize 2184x1968@3`), and writes the received AV1 to a file.
 
 ## Licence
 

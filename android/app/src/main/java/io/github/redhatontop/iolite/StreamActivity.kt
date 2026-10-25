@@ -44,6 +44,7 @@ class StreamActivity : Activity() {
     private val remote = RemoteSession()
     private val handler = Handler(Looper.getMainLooper())
     private val reconnect = Runnable { startSession(reconnecting = true) }
+    private val resize = Runnable { sendResize() }
     private var statusAnimator: ValueAnimator? = null
 
     @Volatile
@@ -67,6 +68,9 @@ class StreamActivity : Activity() {
     private var attempt = 0
     private var imeShown = false
     private var imeInset = 0
+
+    /** The video area the computer was last told about. */
+    private var sentArea: Pair<Int, Int>? = null
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -175,6 +179,9 @@ class StreamActivity : Activity() {
         keyBar.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
             if (bottom - top != oldBottom - oldTop) root.post(::layoutControls)
         }
+        root.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) areaChanged()
+        }
         keyBar.keyboard = keyboard
         keyBar.onKeyboard = ::toggleKeyboard
         keyBar.onMore = ::showMore
@@ -206,7 +213,37 @@ class StreamActivity : Activity() {
         val bar = if (keyBar.visibility == View.VISIBLE) keyBar.height else 0
         aspectFrame.setPadding(0, 0, 0, imeInset + bar)
         pill.setBottomInset(imeInset)
+        areaChanged()
     }
+
+    /**
+     * The area the video may fill: the window less the key bar. The input method is left out,
+     * so opening it does not resize the computer's screen.
+     */
+    private fun videoArea(): Pair<Int, Int> {
+        val bar = if (keyBar.visibility == View.VISIBLE) keyBar.height else 0
+        if (root.width > 0 && root.height > bar) return root.width to root.height - bar
+        val bounds = windowManager.currentWindowMetrics.bounds
+        return bounds.width() to bounds.height()
+    }
+
+    /** A fold, a turn or the key bar changed the video area; a screen made for this device follows it. */
+    private fun areaChanged() {
+        if (!welcomed || computer.display == DisplayMode.MIRROR) return
+        handler.removeCallbacks(resize)
+        handler.postDelayed(resize, RESIZE_SETTLE_MS)
+    }
+
+    private fun sendResize() {
+        if (!welcomed || session == null) return
+        val area = videoArea()
+        if (area == sentArea) return
+        sentArea = area
+        Native.resize(remote.handle, area.first, area.second)
+    }
+
+    /** GNOME scale for a screen made for this device: a little under Android's, since a phone is held closer than a laptop's screen. */
+    private fun displayScale(): Float = resources.displayMetrics.density * SCALE_PER_DENSITY
 
     private fun setKeyBarShown(shown: Boolean) {
         prefs.keyBarShown = shown
@@ -227,6 +264,18 @@ class StreamActivity : Activity() {
         val trackpadItem = content.findViewById<TextView>(R.id.menuTrackpad)
         styleMenuItem(touchItem, touch.mode == InputMode.TOUCH)
         styleMenuItem(trackpadItem, touch.mode == InputMode.TRACKPAD)
+        mapOf(
+            DisplayMode.OWN to R.id.menuScreenOwn,
+            DisplayMode.EXTEND to R.id.menuScreenExtend,
+            DisplayMode.MIRROR to R.id.menuScreenMirror,
+        ).forEach { (mode, id) ->
+            val item = content.findViewById<TextView>(id)
+            styleMenuItem(item, computer.display == mode)
+            item.setOnClickListener {
+                popup.dismiss()
+                setDisplay(mode)
+            }
+        }
         touchItem.setOnClickListener {
             setInputMode(InputMode.TOUCH)
             popup.dismiss()
@@ -260,6 +309,15 @@ class StreamActivity : Activity() {
     private fun setInputMode(mode: InputMode) {
         touch.mode = mode
         computer = prefs.update(computer.id) { it.copy(inputMode = mode) } ?: computer
+    }
+
+    /** The computer makes the screen when a session starts, so a new mode takes a new session. */
+    private fun setDisplay(mode: DisplayMode) {
+        if (mode == computer.display) return
+        computer = prefs.update(computer.id) { it.copy(display = mode) } ?: computer.copy(display = mode)
+        handler.removeCallbacks(reconnect)
+        closeSession()
+        startSession()
     }
 
     private fun addShortcut() {
@@ -308,7 +366,8 @@ class StreamActivity : Activity() {
         )
         val newSession = Session()
         session = newSession
-        val bounds = windowManager.currentWindowMetrics.bounds
+        val area = videoArea()
+        sentArea = area
         try {
             remote.handle = Native.connect(
                 computer.endpoint.host,
@@ -316,9 +375,11 @@ class StreamActivity : Activity() {
                 filesDir.absolutePath,
                 computer.pin,
                 deviceName(),
-                bounds.width(),
-                bounds.height(),
+                area.first,
+                area.second,
                 computer.audio,
+                computer.display.wire,
+                displayScale(),
                 newSession,
             )
         } catch (e: IllegalStateException) {
@@ -351,6 +412,7 @@ class StreamActivity : Activity() {
             startDecoder()
             Native.requestKeyframe(remote.handle)
         }
+        areaChanged()
     }
 
     private fun handleClosed(reason: String) {
@@ -373,7 +435,7 @@ class StreamActivity : Activity() {
         handler.postDelayed(reconnect, delaySeconds * 1000L)
     }
 
-    /** Runs on the UI thread or, for a new session, on the native thread before its first frame. */
+    /** Runs on the UI thread or, before the first frame of a new size, on the native thread. */
     private fun startDecoder() {
         synchronized(decoderLock) {
             releaseDecoder()
@@ -499,6 +561,18 @@ class StreamActivity : Activity() {
             }
         }
 
+        override fun onVideoSize(width: Int, height: Int) {
+            if (session !== this@Session) return
+            // As after the welcome, the first frame of the new size follows on this thread.
+            remote.frameWidth = width
+            remote.frameHeight = height
+            frameSize = width to height
+            startDecoder()
+            runOnUiThread {
+                if (session === this@Session) aspectFrame.setAspect(width, height)
+            }
+        }
+
         override fun onVideo(data: ByteArray, ptsUs: Long, keyframe: Boolean) {
             if (session === this@Session) decoder?.submit(data, ptsUs, keyframe)
         }
@@ -523,6 +597,8 @@ class StreamActivity : Activity() {
         private const val TAG = "iolite"
         private const val MENU_WIDTH_DP = 240f
         private const val STATUS_PULSE_MS = 900L
+        private const val RESIZE_SETTLE_MS = 400L
+        private const val SCALE_PER_DENSITY = 0.75f
         private val RETRY_SECONDS = longArrayOf(1, 2, 4, 8, 16, 30)
 
         /** Part of the host's close reason when another device takes the session; retrying would take it back. */

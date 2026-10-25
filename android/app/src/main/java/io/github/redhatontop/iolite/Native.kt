@@ -21,6 +21,10 @@ object Native {
     const val BUTTON_MIDDLE = 1
     const val BUTTON_RIGHT = 2
 
+    const val DISPLAY_MIRROR = 0
+    const val DISPLAY_OWN = 1
+    const val DISPLAY_EXTEND = 2
+
     interface Listener {
         /** Not paired yet: show [code] until the host user accepts or declines. */
         fun onPairingCode(code: String)
@@ -34,6 +38,9 @@ object Native {
             opusHead: ByteArray?,
         )
 
+        /** Video from the next frame on has this size, and the next frame is a keyframe. */
+        fun onVideoSize(width: Int, height: Int)
+
         /** One AV1 temporal unit (low-overhead OBU format). */
         fun onVideo(data: ByteArray, ptsUs: Long, keyframe: Boolean)
 
@@ -43,7 +50,11 @@ object Native {
         fun onClosed(reason: String)
     }
 
-    /** Starts a session in the background and returns its handle. Throws on bad arguments. */
+    /**
+     * Starts a session in the background and returns its handle. Throws on bad arguments.
+     * [width] and [height] are the area the video may fill; with [DISPLAY_OWN] or
+     * [DISPLAY_EXTEND] the computer makes a screen of that size, at about [scale].
+     */
     @JvmStatic
     external fun connect(
         host: String,
@@ -54,6 +65,8 @@ object Native {
         width: Int,
         height: Int,
         audio: Boolean,
+        display: Int,
+        scale: Float,
         listener: Listener,
     ): Long
 
@@ -93,6 +106,10 @@ object Native {
 
     @JvmStatic
     external fun requestKeyframe(handle: Long)
+
+    /** The area the video may fill changed; a screen made for this device follows it. */
+    @JvmStatic
+    external fun resize(handle: Long, width: Int, height: Int)
 
     @JvmStatic
     external fun close(handle: Long)

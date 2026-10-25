@@ -138,11 +138,14 @@ jobs:
             adb logcat -d > logcat.txt
             cat screens.log
             grep -q "first frame rendered" logcat.txt
+            # Hiding the key bar grows the video area, and the host's screen follows it.
+            test "$(grep -o 'first frame rendered [0-9]*x[0-9]*' logcat.txt | sort -u | wc -l)" -ge 2
             if grep -q "FATAL EXCEPTION" logcat.txt; then exit 1; fi
             grep -q "status=0" screens.log
-      - name: Check that a tap reached the host
+      - name: Check that a tap and a resize reached the host
         run: |
           grep -q 'input: Button' host.log
+          grep -q 'resizing the screen to' host.log
       - if: always()
         run: |
           cat host.log

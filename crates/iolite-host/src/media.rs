@@ -35,7 +35,17 @@ const AV1_TAIL: &str = "av1parse ! video/x-av1,stream-format=obu-stream,alignmen
      ! appsink name=sink sync=false max-buffers=2 drop=false";
 
 impl VideoPipeline {
-    pub fn new(source: &VideoSource, fps: u32, kbps: u32) -> Result<Self> {
+    /// `size` asks the source for that frame size. A virtual monitor takes it as its own size;
+    /// a real one has a fixed size, so it is left out for those.
+    pub fn new(
+        source: &VideoSource,
+        size: Option<(u32, u32)>,
+        fps: u32,
+        kbps: u32,
+    ) -> Result<Self> {
+        let dims = size
+            .map(|(w, h)| format!(",width={w},height={h}"))
+            .unwrap_or_default();
         // PipeWire hands over tiled DMA-BUFs (XR24) at a variable rate; the GL stage converts
         // them to NV12 on the GPU and videorate only stamps a fixed rate on the caps, because
         // vaav1enc's rate control fails on 0/1. The leaky queue drops frames while the encoder
@@ -48,7 +58,7 @@ impl VideoPipeline {
                     "pipewiresrc path={node_id} always-copy=false do-timestamp=true keepalive-time=500 \
                      ! queue max-size-buffers=1 max-size-bytes=0 max-size-time=0 leaky=downstream \
                      ! videorate drop-only=true max-rate={fps} \
-                     ! video/x-raw(memory:DMABuf),framerate={fps}/1 \
+                     ! video/x-raw(memory:DMABuf){dims},framerate={fps}/1 \
                      ! glupload ! glcolorconvert ! video/x-raw(memory:GLMemory),format=NV12 \
                      ! gldownload ! video/x-raw,format=NV12 \
                      ! vaav1enc name=enc rate-control=cbr bitrate={kbps} target-usage=7 \
@@ -60,8 +70,13 @@ impl VideoPipeline {
             VideoSource::Test => (
                 format!(
                     "videotestsrc is-live=true pattern=ball \
-                     ! video/x-raw,width=1280,height=720,framerate=30/1 \
+                     ! video/x-raw{},framerate=30/1 \
                      ! videoconvert ! video/x-raw,format=I420 ! {} ! {AV1_TAIL}",
+                    if dims.is_empty() {
+                        ",width=1280,height=720"
+                    } else {
+                        dims.as_str()
+                    },
                     software_encoder(kbps)?
                 ),
                 false,

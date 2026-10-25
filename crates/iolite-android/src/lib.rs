@@ -12,7 +12,9 @@ use std::sync::{Mutex, OnceLock};
 use anyhow::Result;
 use iolite_client::{Config, Event};
 use iolite_proto::identity::{Fingerprint, Identity};
-use iolite_proto::{ClientMsg, Hello, Input, MouseButton, TouchPhase, PROTOCOL_VERSION};
+use iolite_proto::{
+    ClientMsg, DisplayMode, Hello, Input, MouseButton, TouchPhase, PROTOCOL_VERSION,
+};
 use jni::objects::{GlobalRef, JClass, JObject, JString, JValue};
 use jni::sys::{jboolean, jfloat, jint, jlong, JNI_TRUE};
 use jni::{JNIEnv, JavaVM};
@@ -68,6 +70,8 @@ pub extern "system" fn Java_io_github_redhatontop_iolite_Native_connect<'local>(
     width: jint,
     height: jint,
     audio: jboolean,
+    display: jint,
+    scale: jfloat,
     listener: JObject<'local>,
 ) -> jlong {
     init_logging();
@@ -80,6 +84,7 @@ pub extern "system" fn Java_io_github_redhatontop_iolite_Native_connect<'local>(
         &device_name,
         (width, height),
         audio == JNI_TRUE,
+        (display_mode(display), scale),
         &listener,
     );
     match result {
@@ -101,6 +106,7 @@ fn connect(
     device_name: &JString,
     (width, height): (jint, jint),
     audio: bool,
+    (display, scale): (DisplayMode, f32),
     listener: &JObject,
 ) -> Result<jlong> {
     let host: String = env.get_string(host)?.into();
@@ -123,6 +129,8 @@ fn connect(
         display_width: width.max(0) as u32,
         display_height: height.max(0) as u32,
         audio,
+        display,
+        scale,
     };
     let port = u16::try_from(port)?;
     runtime().spawn(async move {
@@ -154,6 +162,14 @@ fn connect(
         .name("iolite-events".into())
         .spawn(move || deliver(vm, listener, events_rx, handle))?;
     Ok(handle)
+}
+
+fn display_mode(display: jint) -> DisplayMode {
+    match display {
+        1 => DisplayMode::Fit,
+        2 => DisplayMode::Extend,
+        _ => DisplayMode::Mirror,
+    }
 }
 
 fn deliver(vm: JavaVM, listener: GlobalRef, mut events: mpsc::Receiver<Event>, handle: i64) {
@@ -213,6 +229,14 @@ fn dispatch(env: &mut JNIEnv, listener: &JObject, event: Event) -> jni::errors::
                     JValue::Int(welcome.height as jint),
                     (&opus_head).into(),
                 ],
+            )?;
+        }
+        Event::VideoSize { width, height } => {
+            env.call_method(
+                listener,
+                "onVideoSize",
+                "(II)V",
+                &[JValue::Int(width as jint), JValue::Int(height as jint)],
             )?;
         }
         Event::Video(packet) => {
@@ -408,6 +432,23 @@ pub extern "system" fn Java_io_github_redhatontop_iolite_Native_requestKeyframe(
     handle: jlong,
 ) {
     send(handle, ClientMsg::RequestKeyframe);
+}
+
+#[no_mangle]
+pub extern "system" fn Java_io_github_redhatontop_iolite_Native_resize(
+    _env: JNIEnv,
+    _class: JClass,
+    handle: jlong,
+    width: jint,
+    height: jint,
+) {
+    send(
+        handle,
+        ClientMsg::Resize {
+            width: width.max(0) as u32,
+            height: height.max(0) as u32,
+        },
+    );
 }
 
 #[no_mangle]
