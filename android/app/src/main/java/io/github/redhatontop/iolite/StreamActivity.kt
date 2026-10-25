@@ -2,6 +2,7 @@ package io.github.redhatontop.iolite
 
 import android.animation.ValueAnimator
 import android.app.Activity
+import android.content.res.ColorStateList
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
@@ -12,17 +13,18 @@ import android.view.KeyEvent
 import android.view.SurfaceHolder
 import android.view.SurfaceView
 import android.view.View
+import android.view.ViewGroup
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
 import android.widget.FrameLayout
-import android.widget.ImageButton
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.TextView
 
 class StreamActivity : Activity() {
     private lateinit var prefs: Prefs
-    private lateinit var endpoint: Endpoint
+    private lateinit var computer: Computer
     private lateinit var root: FrameLayout
     private lateinit var aspectFrame: AspectFrame
     private lateinit var surface: SurfaceView
@@ -36,17 +38,11 @@ class StreamActivity : Activity() {
     private lateinit var pairCode: TextView
     private lateinit var banner: LinearLayout
     private lateinit var bannerText: TextView
-    private lateinit var toolbar: LinearLayout
-    private lateinit var toolbarHandle: View
-    private lateinit var inputModeButton: ImageButton
-    private lateinit var extraKeys: LinearLayout
-    private lateinit var ctrlKey: TextView
-    private lateinit var altKey: TextView
-    private lateinit var superKey: TextView
+    private lateinit var keyBar: KeyBar
+    private lateinit var pill: FloatingPill
 
     private val remote = RemoteSession()
     private val handler = Handler(Looper.getMainLooper())
-    private val hideToolbar = Runnable { slideToolbar(false) }
     private val reconnect = Runnable { startSession(reconnecting = true) }
     private var statusAnimator: ValueAnimator? = null
 
@@ -69,8 +65,8 @@ class StreamActivity : Activity() {
     private var surfaceReady = false
     private var welcomed = false
     private var attempt = 0
-    private var toolbarShown = false
     private var imeShown = false
+    private var imeInset = 0
 
     private val surfaceCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
@@ -94,22 +90,19 @@ class StreamActivity : Activity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_stream)
-        endpoint = Endpoint(
-            intent.getStringExtra(EXTRA_HOST).orEmpty(),
-            intent.getIntExtra(EXTRA_PORT, Prefs.DEFAULT_PORT),
-        )
         prefs = Prefs(this)
+        computer = intent.getStringExtra(EXTRA_COMPUTER)?.let(prefs::computer) ?: run {
+            finish()
+            return
+        }
         bindViews()
         enterImmersive()
         surface.holder.addCallback(surfaceCallback)
         keyboard.remote = remote
-        keyboard.onStickyChanged = ::refreshModifiers
-        touch = TouchInput(surface, remote, prefs.inputMode, ::onTouchInteract)
+        keyboard.onLatchChanged = { keyBar.refreshModifiers() }
+        touch = TouchInput(surface, remote, computer.inputMode, keyboard, ::onTouchInteract, ::toggleKeyboard)
         touch.attach()
         bindControls()
-        renderInputMode()
-        refreshModifiers()
-        toolbar.post { toolbar.translationX = hiddenToolbarOffset() }
     }
 
     override fun onStart() {
@@ -164,95 +157,130 @@ class StreamActivity : Activity() {
         pairCode = findViewById(R.id.pairCode)
         banner = findViewById(R.id.banner)
         bannerText = findViewById(R.id.bannerText)
-        toolbar = findViewById(R.id.toolbar)
-        toolbarHandle = findViewById(R.id.edgeHandle)
-        inputModeButton = findViewById(R.id.inputModeButton)
-        extraKeys = findViewById(R.id.extraKeys)
-        ctrlKey = findViewById(R.id.keyCtrl)
-        altKey = findViewById(R.id.keyAlt)
-        superKey = findViewById(R.id.keySuper)
+        keyBar = findViewById(R.id.keyBar)
+        pill = FloatingPill(findViewById(R.id.pill), prefs) { setKeyBarShown(true) }
     }
 
     private fun bindControls() {
+        // The window draws behind the input method, so the bar and the video make room for it here.
         root.setOnApplyWindowInsetsListener { _, insets ->
             imeShown = insets.isVisible(WindowInsets.Type.ime())
-            extraKeys.visibility = if (imeShown) View.VISIBLE else View.GONE
+            imeInset = insets.getInsets(WindowInsets.Type.ime()).bottom
+            val cutout = insets.getInsets(WindowInsets.Type.displayCutout())
+            keyBar.setPadding(cutout.left, 0, cutout.right, 0)
+            keyBar.setKeyboardShown(imeShown)
+            layoutControls()
             insets
         }
-        toolbarHandle.setOnClickListener { slideToolbar(!toolbarShown) }
-        findViewById<View>(R.id.keyboardButton).setOnClickListener {
-            if (imeShown) keyboard.hide() else keyboard.show()
-            slideToolbar(false)
+        keyBar.addOnLayoutChangeListener { _, _, top, _, bottom, _, oldTop, _, oldBottom ->
+            if (bottom - top != oldBottom - oldTop) root.post(::layoutControls)
         }
-        inputModeButton.setOnClickListener {
-            toggleInputMode()
-            slideToolbar(true)
+        keyBar.keyboard = keyboard
+        keyBar.onKeyboard = ::toggleKeyboard
+        keyBar.onMore = ::showMore
+        keyBar.onHide = { setKeyBarShown(false) }
+        keyBar.onAddShortcut = ::addShortcut
+        keyBar.onEditShortcut = ::editShortcut
+        keyBar.onPageChanged = {
+            prefs.keyBarPage = keyBar.page.ordinal
+            prefs.keyBarExpanded = keyBar.expanded
         }
-        findViewById<View>(R.id.disconnectButton).setOnClickListener { disconnect() }
+        keyBar.restore(KeyBar.Page.entries.getOrElse(prefs.keyBarPage) { KeyBar.Page.KEYS }, prefs.keyBarExpanded)
+        keyBar.setShortcuts(prefs.shortcuts())
+        keyBar.refreshModifiers()
+        setKeyBarShown(prefs.keyBarShown)
         findViewById<View>(R.id.pairCancelButton).setOnClickListener { cancelPairing() }
         findViewById<View>(R.id.reconnectButton).setOnClickListener {
             hideBanner()
             startSession()
         }
         findViewById<View>(R.id.backButton).setOnClickListener { finish() }
-        bindKey(R.id.keyEsc, Keysyms.ESCAPE)
-        bindKey(R.id.keyTab, Keysyms.TAB)
-        bindKey(R.id.keyLeft, Keysyms.DPAD_LEFT)
-        bindKey(R.id.keyUp, Keysyms.DPAD_UP)
-        bindKey(R.id.keyDown, Keysyms.DPAD_DOWN)
-        bindKey(R.id.keyRight, Keysyms.DPAD_RIGHT)
-        ctrlKey.setOnClickListener { keyboard.toggleSticky(Keysyms.CTRL_LEFT) }
-        altKey.setOnClickListener { keyboard.toggleSticky(Keysyms.ALT_LEFT) }
-        superKey.setOnClickListener { keyboard.toggleSticky(Keysyms.META_LEFT) }
     }
 
-    private fun bindKey(id: Int, keysym: Int) {
-        findViewById<View>(id).setOnClickListener {
-            keyboard.finishComposition()
-            keyboard.send(keysym)
+    private fun layoutControls() {
+        val params = keyBar.layoutParams as FrameLayout.LayoutParams
+        if (params.bottomMargin != imeInset) {
+            params.bottomMargin = imeInset
+            keyBar.layoutParams = params
         }
+        val bar = if (keyBar.visibility == View.VISIBLE) keyBar.height else 0
+        aspectFrame.setPadding(0, 0, 0, imeInset + bar)
+        pill.setBottomInset(imeInset)
     }
 
-    private fun refreshModifiers() {
-        styleModifier(ctrlKey, Keysyms.CTRL_LEFT)
-        styleModifier(altKey, Keysyms.ALT_LEFT)
-        styleModifier(superKey, Keysyms.META_LEFT)
+    private fun setKeyBarShown(shown: Boolean) {
+        prefs.keyBarShown = shown
+        keyBar.visibility = if (shown) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.pill).visibility = if (shown) View.GONE else View.VISIBLE
+        layoutControls()
     }
 
-    private fun styleModifier(key: TextView, keysym: Int) {
-        val active = keyboard.isSticky(keysym)
-        key.setTextColor(getColor(if (active) R.color.honey else R.color.text))
-        key.setBackgroundResource(if (active) R.drawable.bg_key_active else R.drawable.bg_key)
+    private fun toggleKeyboard() {
+        if (imeShown) keyboard.hide() else keyboard.show()
     }
 
-    private fun toggleInputMode() {
-        touch.mode = if (touch.mode == InputMode.TOUCH) InputMode.TRACKPAD else InputMode.TOUCH
-        prefs.inputMode = touch.mode
-        renderInputMode()
+    private fun showMore(anchor: View) {
+        val content = layoutInflater.inflate(R.layout.popup_more, root, false)
+        val popup = PopupWindow(content, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, true)
+        val touchItem = content.findViewById<TextView>(R.id.menuTouch)
+        val trackpadItem = content.findViewById<TextView>(R.id.menuTrackpad)
+        styleMenuItem(touchItem, touch.mode == InputMode.TOUCH)
+        styleMenuItem(trackpadItem, touch.mode == InputMode.TRACKPAD)
+        touchItem.setOnClickListener {
+            setInputMode(InputMode.TOUCH)
+            popup.dismiss()
+        }
+        trackpadItem.setOnClickListener {
+            setInputMode(InputMode.TRACKPAD)
+            popup.dismiss()
+        }
+        content.findViewById<View>(R.id.menuDisconnect).setOnClickListener {
+            popup.dismiss()
+            disconnect()
+        }
+        popup.elevation = dp(8f)
+        content.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        popup.showAsDropDown(
+            anchor,
+            anchor.width - content.measuredWidth,
+            -anchor.height - content.measuredHeight - dp(6f).toInt(),
+        )
     }
 
-    private fun renderInputMode() {
-        val trackpad = touch.mode == InputMode.TRACKPAD
-        inputModeButton.setImageResource(if (trackpad) R.drawable.ic_cursor else R.drawable.ic_hand)
-        inputModeButton.contentDescription = getString(if (trackpad) R.string.input_trackpad else R.string.input_touch)
+    private fun styleMenuItem(item: TextView, active: Boolean) {
+        val color = getColor(if (active) R.color.honey else R.color.text)
+        item.setTextColor(color)
+        item.compoundDrawableTintList = ColorStateList.valueOf(color)
+    }
+
+    private fun setInputMode(mode: InputMode) {
+        touch.mode = mode
+        computer = prefs.update(computer.id) { it.copy(inputMode = mode) } ?: computer
+    }
+
+    private fun addShortcut() {
+        ShortcutDialog(this, null, onSave = { saveShortcuts(prefs.shortcuts() + it) }, onDelete = {}).show()
+    }
+
+    private fun editShortcut(index: Int) {
+        val shortcuts = prefs.shortcuts()
+        val existing = shortcuts.getOrNull(index) ?: return
+        ShortcutDialog(
+            this,
+            existing,
+            onSave = { edited -> saveShortcuts(shortcuts.toMutableList().also { it[index] = edited }) },
+            onDelete = { saveShortcuts(shortcuts.filterIndexed { i, _ -> i != index }) },
+        ).show()
+    }
+
+    private fun saveShortcuts(shortcuts: List<Shortcut>) {
+        prefs.saveShortcuts(shortcuts)
+        keyBar.setShortcuts(shortcuts)
     }
 
     private fun onTouchInteract() {
         keyboard.finishComposition()
-        if (toolbarShown) slideToolbar(false)
     }
-
-    private fun slideToolbar(shown: Boolean) {
-        toolbarShown = shown
-        handler.removeCallbacks(hideToolbar)
-        if (shown) handler.postDelayed(hideToolbar, TOOLBAR_IDLE_MS)
-        toolbar.animate()
-            .translationX(if (shown) 0f else hiddenToolbarOffset())
-            .setDuration(TOOLBAR_SLIDE_MS)
-            .start()
-    }
-
-    private fun hiddenToolbarOffset(): Float = toolbar.width.toFloat() + dp(8f)
 
     private fun enterImmersive() {
         window.setDecorFitsSystemWindows(false)
@@ -268,24 +296,25 @@ class StreamActivity : Activity() {
 
     private fun startSession(reconnecting: Boolean = false) {
         if (!started || !surfaceReady || session != null) return
+        computer = prefs.computer(computer.id) ?: computer
         welcomed = false
         hideBanner()
         showStatus(
-            if (reconnecting) getString(R.string.reconnecting) else getString(R.string.connecting_to, endpoint.host),
+            if (reconnecting) getString(R.string.reconnecting) else getString(R.string.connecting_to, computer.title),
         )
         val newSession = Session()
         session = newSession
         val bounds = windowManager.currentWindowMetrics.bounds
         try {
             remote.handle = Native.connect(
-                endpoint.host,
-                endpoint.port,
+                computer.endpoint.host,
+                computer.endpoint.port,
                 filesDir.absolutePath,
-                prefs.pin(endpoint),
+                computer.pin,
                 deviceName(),
                 bounds.width(),
                 bounds.height(),
-                true,
+                computer.audio,
                 newSession,
             )
         } catch (e: IllegalStateException) {
@@ -295,6 +324,7 @@ class StreamActivity : Activity() {
     }
 
     private fun closeSession() {
+        keyboard.resetLatches()
         val handle = remote.handle
         session = null
         remote.handle = 0L
@@ -303,11 +333,12 @@ class StreamActivity : Activity() {
         Native.close(handle)
     }
 
-    private fun handleWelcome(fingerprint: String, width: Int, height: Int, opusHead: ByteArray?) {
+    private fun handleWelcome(fingerprint: String, hostName: String, width: Int, height: Int, opusHead: ByteArray?) {
         welcomed = true
         attempt = 0
-        prefs.setPin(endpoint, fingerprint)
-        prefs.remember(endpoint)
+        computer = prefs.update(computer.id) {
+            it.copy(pin = fingerprint, hostName = hostName, lastUsed = System.currentTimeMillis())
+        } ?: computer
         hideOverlays()
         aspectFrame.setAspect(width, height)
         releaseAudio()
@@ -321,6 +352,7 @@ class StreamActivity : Activity() {
     private fun handleClosed(reason: String) {
         session = null
         remote.handle = 0L
+        keyboard.resetLatches()
         releaseMedia()
         if (welcomed && started && !reason.contains(TAKEN_OVER)) {
             scheduleReconnect()
@@ -381,7 +413,6 @@ class StreamActivity : Activity() {
 
     private fun disconnect() {
         closeSession()
-        slideToolbar(false)
         showBanner(getString(R.string.disconnected))
     }
 
@@ -392,7 +423,7 @@ class StreamActivity : Activity() {
 
     private fun showPairing(code: String) {
         hideStatus()
-        pairTitle.text = getString(R.string.pair_with, endpoint.host)
+        pairTitle.text = getString(R.string.pair_with, computer.title)
         pairCode.text = code.chunked(3).joinToString(" ")
         pairingOverlay.visibility = View.VISIBLE
     }
@@ -460,7 +491,7 @@ class StreamActivity : Activity() {
             frameSize = width to height
             startDecoder()
             runOnUiThread {
-                if (session === this@Session) handleWelcome(hostFingerprint, width, height, opusHead)
+                if (session === this@Session) handleWelcome(hostFingerprint, hostName, width, height, opusHead)
             }
         }
 
@@ -480,11 +511,12 @@ class StreamActivity : Activity() {
     }
 
     companion object {
+        const val EXTRA_COMPUTER = "computer"
+
+        /** For MainActivity: connect to this address (with [EXTRA_PORT]) when it starts. */
         const val EXTRA_HOST = "host"
         const val EXTRA_PORT = "port"
         private const val TAG = "iolite"
-        private const val TOOLBAR_IDLE_MS = 4000L
-        private const val TOOLBAR_SLIDE_MS = 180L
         private const val STATUS_PULSE_MS = 900L
         private val RETRY_SECONDS = longArrayOf(1, 2, 4, 8, 16, 30)
 

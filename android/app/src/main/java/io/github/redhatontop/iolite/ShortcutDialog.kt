@@ -25,6 +25,7 @@ class ShortcutDialog(
     private val view = activity.layoutInflater.inflate(R.layout.dialog_shortcut, null)
     private val handler = Handler(Looper.getMainLooper())
     private val disarmDelete = Runnable { armDelete(false) }
+
     /** The key the shortcut ends on; a modifier itself when that is all it presses, like Super. */
     private val initialKey = existing?.keys?.let { keys -> keys.lastOrNull { it !in MODIFIERS } ?: keys.lastOrNull() }
     private val held = existing?.keys.orEmpty().filter { it in MODIFIERS && it != initialKey }.toMutableSet()

@@ -202,7 +202,8 @@ class TouchInput(
     }
 
     private fun multiTouchMove(event: MotionEvent) {
-        if (event.pointerCount < 2) return
+        // The centroid jumps as a third finger lands or lifts, so three fingers never scroll.
+        if (event.pointerCount < 2 || fingers >= 3) return
         val (cx, cy) = centroid(event)
         centroidTravel = max(centroidTravel, distance(centroidStartX, centroidStartY, cx, cy))
         if (centroidTravel <= slop) return
@@ -216,12 +217,10 @@ class TouchInput(
     private fun endMultiTouch(event: MotionEvent) {
         if (scrolled) Native.scroll(remote.handle, 0f, 0f, true)
         val held = event.eventTime - multiStart
-        if (!scrolled && centroidTravel <= slop) {
-            if (fingers >= 3) {
-                if (held < THREE_FINGER_TAP_MS) onThreeFingerTap()
-            } else if (held < TAP_MS) {
-                click(Native.BUTTON_RIGHT)
-            }
+        if (fingers >= 3) {
+            if (held < THREE_FINGER_TAP_MS) onThreeFingerTap()
+        } else if (!scrolled && centroidTravel <= slop && held < TAP_MS) {
+            click(Native.BUTTON_RIGHT)
         }
         scrolled = false
     }

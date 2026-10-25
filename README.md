@@ -67,7 +67,21 @@ with the same code: accept it there only if the codes match. If notifications ar
 `iolite clients` lists paired devices and `iolite clients --forget <fingerprint prefix>` removes
 one.
 
-On the phone, tap the handle on the right edge for the keyboard, the input mode and disconnect.
+Computers you connect to are saved on the start screen with the last time you used them; the
+`⋯` button on each one renames it, changes its address, input mode or sound, forgets its pairing
+or deletes it.
+
+While streaming, the bar along the bottom holds the keys a phone keyboard lacks: Esc, Tab, Home,
+End, Page Up/Down, the arrows, Backspace, Delete and Enter, with F1–F12, Print and Insert on a
+second page. Ctrl, Alt, Shift and Super apply to the next key, click or shortcut when tapped and
+stay held when long-pressed, so Ctrl+click and Super+drag work too; holding an arrow repeats it.
+The shortcuts page has GNOME's and the usual application shortcuts (Activities, Alt+Tab,
+Super+arrows, copy and paste, terminal copy and paste, browser tabs) and your own, which you add
+with `+` and edit by long-pressing. The strip above the keys opens the keyboard, shows the
+Activities overview, switches between touch and trackpad input, disconnects and hides the bar;
+a three-finger tap also opens or closes the keyboard. The video shrinks to stay above the bar and
+the keyboard.
+
 In touch mode the finger is the pointer: tap to click where you tap, drag to drag, hold to
 right-click. In trackpad mode the phone is a touchpad: slide to move the pointer, tap to click,
 tap and drag to drag. In both, two fingers scroll, and a two-finger tap right-clicks.

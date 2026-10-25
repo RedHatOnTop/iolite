@@ -126,6 +126,7 @@ jobs:
             adb install -r iolite.apk
             adb shell settings put secure immersive_mode_confirmations confirmed
             adb shell settings put global hide_error_dialogs 1
+            adb shell settings put secure show_ime_with_hard_keyboard 1
             adb logcat -c
             adb shell am start -n io.github.redhatontop.iolite/.MainActivity --es host 10.0.2.2 --ei port 46100 --ez autoconnect true
             sleep 30
@@ -133,8 +134,12 @@ jobs:
             adb exec-out screencap -p > stream.png
             adb shell input tap 540 1200
             sleep 3
+            bash .github/e2e-screens.sh > screens.log 2>&1; echo "status=$?" >> screens.log
             adb logcat -d > logcat.txt
+            cat screens.log
             grep -q "first frame rendered" logcat.txt
+            if grep -q "FATAL EXCEPTION" logcat.txt; then exit 1; fi
+            grep -q "status=0" screens.log
       - name: Check that a tap reached the host
         run: |
           grep -q 'input: Button' host.log
@@ -147,6 +152,8 @@ jobs:
         with:
           name: e2e
           path: |
-            stream.png
+            *.png
+            ui.xml
+            screens.log
             logcat.txt
             host.log

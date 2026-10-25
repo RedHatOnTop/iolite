@@ -39,7 +39,6 @@
         android:alpha="0.85"
         android:background="@drawable/bg_pill"
         android:contentDescription="@string/show_keys"
-        android:elevation="4dp"
         android:scaleType="center"
         android:src="@drawable/ic_facet"
         android:visibility="gone" />
