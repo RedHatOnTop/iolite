@@ -34,7 +34,13 @@ sudo dnf install gstreamer1-plugins-base gstreamer1-plugins-bad-free pipewire-gs
   libva-intel-media-driver
 ```
 
-빌드하거나 최신 CI 실행의 아티팩트에서 `iolite`를 받습니다.
+[최신 릴리스](https://github.com/RedHatOnTop/iolite/releases/latest)에서 `iolite-linux-x86_64`를 받아 설치합니다(Fedora 44에서 빌드).
+
+```sh
+install -Dm755 iolite-linux-x86_64 ~/.local/bin/iolite
+```
+
+직접 빌드해도 됩니다.
 
 ```sh
 sudo dnf install cargo gstreamer1-devel gstreamer1-plugins-base-devel
@@ -56,7 +62,7 @@ UDP 46100 포트를 씁니다. 포트를 인터넷에 열지 말고 두 기기�
 
 ## 휴대폰
 
-최신 CI 실행에서 `iolite.apk`를 설치하고 컴퓨터의 Tailscale 이름이나 주소를 넣어 연결합니다.
+[최신 릴리스](https://github.com/RedHatOnTop/iolite/releases/latest)에서 `iolite.apk`를 설치하고 컴퓨터의 Tailscale 이름이나 주소를 넣어 연결합니다.
 처음에는 휴대폰에 6자리 코드가, 컴퓨터에는 같은 코드가 담긴 알림이 뜹니다. 두 코드가 같을
 때만 컴퓨터에서 수락하세요. 알림이 안 보이면 `iolite pending`으로 요청을 보고
 `iolite approve 123456`으로 수락할 수 있습니다.

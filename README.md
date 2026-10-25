@@ -37,7 +37,13 @@ sudo dnf install gstreamer1-plugins-base gstreamer1-plugins-bad-free pipewire-gs
   libva-intel-media-driver
 ```
 
-Build (or take `iolite` from the artifacts of the latest CI run):
+Take `iolite-linux-x86_64` from the [latest release](https://github.com/RedHatOnTop/iolite/releases/latest) (built on Fedora 44):
+
+```sh
+install -Dm755 iolite-linux-x86_64 ~/.local/bin/iolite
+```
+
+or build it:
 
 ```sh
 sudo dnf install cargo gstreamer1-devel gstreamer1-plugins-base-devel
@@ -59,7 +65,7 @@ network (or LAN) rather than opening the port to the internet.
 
 ## Phone
 
-Install `iolite.apk` from the latest CI run, enter the computer's Tailscale name or address and
+Install `iolite.apk` from the [latest release](https://github.com/RedHatOnTop/iolite/releases/latest), enter the computer's Tailscale name or address and
 connect. The first time, the phone shows a six-digit code and the computer shows a notification
 with the same code: accept it there only if the codes match. If notifications are not visible,
 `iolite pending` lists requests and `iolite approve 123456` accepts one.
