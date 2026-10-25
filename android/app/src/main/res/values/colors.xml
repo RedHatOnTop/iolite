@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="ink">#0E0F14</color>
+    <color name="surface">#171922</color>
+    <color name="raised">#1F2230</color>
+    <color name="hairline">#2A2E3D</color>
+    <color name="chip">#272B3A</color>
+    <color name="text">#ECEDF2</color>
+    <color name="text_dim">#8F94A6</color>
+    <color name="honey">#E8B14F</color>
+    <color name="honey_pressed">#CF9A3E</color>
+    <color name="honey_ink">#1A1408</color>
+    <color name="violet">#8B8EF5</color>
+    <color name="violet_deep">#5B5EC4</color>
+    <color name="danger">#F07167</color>
+    <color name="black">#000000</color>
+</resources>

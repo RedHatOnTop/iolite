@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_key"
+    android:gravity="center_vertical"
+    android:minHeight="68dp"
+    android:orientation="horizontal"
+    android:paddingStart="18dp"
+    android:paddingEnd="4dp">
+
+    <ImageView
+        android:id="@+id/mark"
+        android:layout_width="20dp"
+        android:layout_height="20dp"
+        android:contentDescription="@null" />
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:paddingTop="12dp"
+        android:paddingBottom="12dp">
+
+        <TextView
+            android:id="@+id/computerName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:textColor="@color/text"
+            android:textSize="17sp" />
+
+        <TextView
+            android:id="@+id/computerDetail"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="2dp"
+            android:ellipsize="end"
+            android:fontFamily="monospace"
+            android:maxLines="1"
+            android:textColor="@color/text_dim"
+            android:textSize="12sp" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/computerLastUsed"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="8dp"
+        android:textColor="@color/text_dim"
+        android:textSize="12sp" />
+
+    <ImageButton
+        android:id="@+id/computerEdit"
+        android:layout_width="44dp"
+        android:layout_height="44dp"
+        android:layout_marginStart="2dp"
+        android:background="?android:attr/selectableItemBackgroundBorderless"
+        android:contentDescription="@string/edit"
+        android:src="@drawable/ic_more"
+        android:tint="@color/text_dim" />
+</LinearLayout>

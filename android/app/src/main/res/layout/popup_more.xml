@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:background="@drawable/bg_toolbar"
+    android:minWidth="220dp"
+    android:orientation="vertical"
+    android:paddingTop="6dp"
+    android:paddingBottom="6dp">
+
+    <TextView
+        android:id="@+id/menuTouch"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_hand"
+        android:text="@string/input_touch" />
+
+    <TextView
+        android:id="@+id/menuTrackpad"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_cursor"
+        android:text="@string/input_trackpad" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@color/hairline" />
+
+    <TextView
+        android:id="@+id/menuScreenOwn"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_screen_own"
+        android:text="@string/menu_screen_own" />
+
+    <TextView
+        android:id="@+id/menuScreenExtend"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_screen_extend"
+        android:text="@string/menu_screen_extend" />
+
+    <TextView
+        android:id="@+id/menuScreenMirror"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_screen_mirror"
+        android:text="@string/menu_screen_mirror" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="6dp"
+        android:background="@color/hairline" />
+
+    <TextView
+        android:id="@+id/menuDisconnect"
+        style="@style/MenuItem"
+        android:drawableStart="@drawable/ic_disconnect"
+        android:text="@string/disconnect"
+        android:textColor="@color/danger" />
+</LinearLayout>

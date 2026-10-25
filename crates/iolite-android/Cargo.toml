@@ -1,0 +1,24 @@
+[package]
+name = "iolite-android"
+description = "JNI bridge between the iolite Android app and iolite-client"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[lib]
+name = "iolite_android"
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow.workspace = true
+iolite-client.workspace = true
+iolite-proto.workspace = true
+jni = "0.21"
+log.workspace = true
+tokio.workspace = true
+
+[target.'cfg(target_os = "android")'.dependencies]
+android_logger = "0.14"

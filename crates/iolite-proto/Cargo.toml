@@ -1,0 +1,20 @@
+[package]
+name = "iolite-proto"
+description = "Wire protocol shared by the iolite host and its clients"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+postcard.workspace = true
+quinn.workspace = true
+rcgen.workspace = true
+ring.workspace = true
+rustls.workspace = true
+serde.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt"] }
